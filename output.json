@@ -1,0 +1,186 @@
+{
+    "circles": {
+        "qwew": [
+            {
+                "center_x": 30,
+                "center_y": 20,
+                "radius": 10
+            },
+            {
+                "center_x": 62,
+                "center_y": 20,
+                "radius": 10
+            }
+        ],
+        "dawd": [
+            {
+                "center_x": 26,
+                "center_y": 82,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 276,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 82,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 276,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 82,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 276,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 178,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 308,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 178,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 308,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 178,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 308,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 212,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 212,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 212,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 50,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 114,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 146,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 340,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 50,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 114,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 146,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 340,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 50,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 114,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 146,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 340,
+                "radius": 10
+            },
+            {
+                "center_x": 26,
+                "center_y": 244,
+                "radius": 10
+            },
+            {
+                "center_x": 58,
+                "center_y": 244,
+                "radius": 10
+            },
+            {
+                "center_x": 90,
+                "center_y": 244,
+                "radius": 10
+            }
+        ],
+        "eqwe": [
+            {
+                "center_x": 24,
+                "center_y": 16,
+                "radius": 10
+            },
+            {
+                "center_x": 56,
+                "center_y": 16,
+                "radius": 10
+            }
+        ]
+    },
+    "calibration": {
+        "x": 787.9998779296875,
+        "y": 1149.499755859375,
+        "width": 1503.999755859375,
+        "height": 2230.99951171875
+    }
+}

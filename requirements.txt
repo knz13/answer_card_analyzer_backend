@@ -1,0 +1,5 @@
+opencv-python
+pdf2image
+PyInstaller
+eventlet
+quart
