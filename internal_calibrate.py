@@ -1,6 +1,5 @@
 import cv2 as cv2
 import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image
 from pdf2image import convert_from_path
 
