@@ -1,6 +1,6 @@
 import asyncio
 import websockets
-from quart import Quart, request, jsonify
+from quart import Quart, Response, request, jsonify
 import cv2
 import numpy as np
 from PIL import Image
@@ -13,6 +13,8 @@ from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 import json
 import io
 from quart.datastructures import FileStorage
+from quart_cors import cors
+
 
 def image_as_encoded(image):
     byte_arr = io.BytesIO()
@@ -21,6 +23,7 @@ def image_as_encoded(image):
     return encoded_img
 
 app = Quart(__name__)
+app = cors(app, allow_origin="*")
 
 clients = {}  # Dictionary to track WebSocket sessions by ID
 

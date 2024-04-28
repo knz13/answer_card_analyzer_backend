@@ -3,3 +3,4 @@ pdf2image
 PyInstaller
 eventlet
 quart
+quart-cors
