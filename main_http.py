@@ -1,6 +1,6 @@
 import asyncio
 import websockets
-from quart import Quart, Response, request, jsonify
+from quart import  Quart, Response, request, jsonify
 import cv2
 import numpy as np
 from PIL import Image
@@ -14,6 +14,8 @@ import json
 import io
 from quart.datastructures import FileStorage
 from quart_cors import cors
+from hypercorn.config import Config
+from hypercorn.asyncio import serve
 
 
 def image_as_encoded(image):
@@ -206,6 +208,13 @@ async def handle_websocket(websocket, path):
 
 start_server = websockets.serve(handle_websocket, 'localhost', 8996)
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(start_server)
-loop.run_until_complete(app.run_task(port=5000))  # Quart server running on port 5000
+
+@app.before_serving
+async def startup():
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_server)
+
+if __name__ == "__main__":
+    config = Config()
+    config.bind = ["localhost:5000"]  # bind to localhost on port 5000
+    asyncio.run(serve(app, config))

@@ -5,3 +5,4 @@ eventlet
 quart
 quart-cors
 websockets
+hypercorn
