@@ -3,7 +3,6 @@
 import random
 from PIL import Image
 import cv2
-import imagehash
 import numpy as np
 from find_circles import show_image
 from websocket_types import BoxRectangleType
