@@ -211,8 +211,8 @@ start_server = websockets.serve(handle_websocket, 'localhost', 8996)
 
 @app.before_serving
 async def startup():
-    loop = asyncio.get_event_loop()
-    loop.create_task(start_server)
+    async with websockets.serve(handle_websocket, 'localhost', 8996):
+        await asyncio.Future()  # This will never complete
 
 if __name__ == "__main__":
     config = Config()
