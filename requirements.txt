@@ -4,3 +4,4 @@ PyInstaller
 eventlet
 quart
 quart-cors
+websockets
