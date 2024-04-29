@@ -215,6 +215,8 @@ async def start_websocket_server():
 @app.before_serving
 async def startup():
     asyncio.create_task(start_websocket_server())
+
+
 if __name__ == "__main__":
     config = Config()
     config.bind = ["localhost:8080"]  # bind to localhost on port 8080
