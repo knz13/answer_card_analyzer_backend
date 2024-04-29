@@ -213,7 +213,7 @@ async def handle_websocket(websocket, path):
 
 
 async def start_websocket_server():
-    server = await websockets.serve(handle_websocket, '0.0.0.0', 8996)
+    server = await websockets.serve(handle_websocket, '0.0.0.0', 8080)
     await server.wait_closed()
 
 @app.before_serving
