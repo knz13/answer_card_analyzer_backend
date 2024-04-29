@@ -206,14 +206,15 @@ async def handle_websocket(websocket, path):
         if client_id != "":
             del clients[client_id]
 
-start_server = websockets.serve(handle_websocket, 'localhost', 8996)
 
+
+async def start_websocket_server():
+    server = await websockets.serve(handle_websocket, 'localhost', 8996)
+    await server.wait_closed()
 
 @app.before_serving
 async def startup():
-    async with websockets.serve(handle_websocket, 'localhost', 8996):
-        await asyncio.Future()  # This will never complete
-
+    asyncio.create_task(start_websocket_server())
 if __name__ == "__main__":
     config = Config()
     config.bind = ["localhost:5000"]  # bind to localhost on port 5000
