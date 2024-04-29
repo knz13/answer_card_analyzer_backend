@@ -223,5 +223,5 @@ async def startup():
 
 if __name__ == "__main__":
     config = Config()
-    config.bind = ["0.0.0.0:8080"]  # bind to localhost on port 8080
+    config.bind = ["0.0.0.0:8000"]  # bind to localhost on port 8080
     asyncio.run(serve(app, config))
