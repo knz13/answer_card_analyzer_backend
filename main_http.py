@@ -70,6 +70,10 @@ async def read_to_images_route():
         print(f"An error occurred: {e}")
         return jsonify({"status": WebsocketMessageStatus.ERROR, "error": str(e)}), 500
 
+@app.route("/")
+async def index():
+    return "Hello, World!"
+
 @app.route('/find_circles', methods=['POST'])
 async def find_circles_route():
     print("Received request to find circles.")
