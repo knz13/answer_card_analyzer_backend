@@ -38,10 +38,26 @@ def apply_calibration_to_image(img: Image,calibration_rect):
     # Get the bounding box of the rotated rectangle
     x = int(center[0] - size[0]/2)
     y = int(center[1] - size[1]/2)
+
+    if x < 0:
+        x = 0
+    if y < 0:
+        y = 0 
+    
+    max_x = x + int(size[0])
+    max_y = y + int(size[1])
+
+    if max_x > rotated.shape[1]:
+        max_x = rotated.shape[1]
+    if max_y > rotated.shape[0]:
+        max_y = rotated.shape[0]
+        
+    
     
     # Crop the rotated image to size
     cropped = rotated[y:y+int(size[1]), x:x+int(size[0])]
     # rotate the image
+
 
     
     if angle < -45:
@@ -168,11 +184,11 @@ def get_calibration_rect_for_image(img_path,img=None):
 
     rect = ((rect_x, rect_y), (rect_w, rect_h), rect[2])
 
-    print(rect)
+    #print(rect)
 
-    print(all_points)
+    #print(all_points)
 
-    print(img.shape)
+    #print(img.shape)
 
     box = cv2.boxPoints(rect)
     box = np.int0(box)

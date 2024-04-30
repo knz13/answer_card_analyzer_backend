@@ -67,6 +67,10 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
             if on_progress != None: 
                 await on_progress(f"Applying calibration to image {i}")
 
+            print(f"Calibration rect: {calibration_rect}")
+            print(f"Image size: {images[i].width}, {images[i].height}")
+
+
             img=  apply_calibration_to_image(images[i], calibration_rect)
 
             #img.save(image_path, "PNG")
