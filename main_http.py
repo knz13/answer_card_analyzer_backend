@@ -1,26 +1,19 @@
 import asyncio
-import websockets
-from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, send, emit
 import cv2
 import numpy as np
 from PIL import Image
 import os
 from base64 import b64encode
-import tempfile
 from find_circles import find_circles, find_circles_cv2, show_image
 from read_to_images import read_to_images
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 import json
 import io
-from quart.datastructures import FileStorage
-from quart_cors import cors
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from starlette.responses import JSONResponse
 from starlette.websockets import WebSocket
-from pydantic import BaseModel
 
 
 
@@ -111,7 +104,7 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
 
         if socket_id in clients:
             await send_progress(clients[socket_id], "Completed processing image.", task_id)
-            
+
         if "image_offset" in data and data["image_offset"] != None:
             for circle in circles:
                 circle["center_x"] = circle["center_x"] - data["image_offset"]["x"]
