@@ -37,7 +37,6 @@ async def find_circles(img, rectangle,rectangle_type,on_progress=None):
 async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_progress=None,circle_size=None,circle_precision_percentage=1):
     # Load the image
 
-    print(rectangle)
 
     if img is None:
 

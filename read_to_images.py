@@ -8,18 +8,15 @@ from pdf2image import convert_from_path,convert_from_bytes
 import json
 from find_circles import find_circles, find_circles_cv2
 from internal_calibrate import apply_calibration_to_image, get_calibration_center_for_image,get_calibration_rect_for_image
-from quart.datastructures import FileStorage
+from fastapi import UploadFile
 
 
-async def read_to_images(file: FileStorage,needs_calibration=True,on_progress=None):
+async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=None):
     print("Reading data to images...")
 
-    
-    
-    
     # read each page of the pdf to images
 
-    bytes_arr = file.read()
+    bytes_arr = await file.read()
 
     if file.filename.endswith(".pdf"):
 
