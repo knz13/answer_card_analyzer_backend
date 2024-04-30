@@ -8,10 +8,15 @@ class WebsocketMessageCommand:
     GET_CALIBRATION = "getCalibration"
     FIND_CIRCLES = "findCircles"
 
+
+
+
 class WebsocketMessageStatus:
     COMPLETED_TASK = "completedTask"
     ERROR = "error"
     PROGRESS = "progress"
+    SENDING_CHUNK = "sendingChunk"
+    FINAL_CHUNK = "finalChunk"
 
 class BoxRectangleType:
     TYPE_B = "Tipo B"
