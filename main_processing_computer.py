@@ -25,7 +25,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.DEV
+        return Environment.PROD
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -103,14 +103,19 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
             # send images back
 
+            await send_progress(websocket, "Sending images back to server...", job["task_id"])
+            
             images_ids = []
-
+            index = 0
             for image in images["images"]:
 
                 images_ids.append(image)
 
+                await send_progress(websocket, f"Sending images back to server {index}/{len(images['images'])}...", job["task_id"])
+
                 await send_bytes_in_chunks(websocket,job["task_id"], b64decode(images["images"][image]), image)
-            
+
+                index += 1
             del images["images"]
             
             await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
@@ -151,23 +156,37 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                 if data["circle_precision_percentage"] == None:
                     data["circle_precision_percentage"] = 1
 
-                circles = await find_circles_cv2("", data["rect"], data["rect_type"], img=image, circle_precision_percentage=data["circle_precision_percentage"],
-                                                on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
 
-                await send_progress(websocket, "Completed processing image.", job["task_id"])
+                circles_per_box = {}
 
-                if "image_offset" in data and data["image_offset"] != None:
-                    for circle in circles:
-                        circle["center_x"] = circle["center_x"] - data["image_offset"]["x"]
-                        circle["center_y"] = circle["center_y"] - data["image_offset"]["y"]
+                for box in data["boxes"]:
 
-                if "image_angle" in data and data["image_angle"] != None:
-                    center = (image.shape[1] // 2, image.shape[0] // 2)
-                    M = cv2.getRotationMatrix2D(center, data["image_angle"], 1)
-                    for circle in circles:
-                        circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
+                    rect = box["rect"]
+                    rect_type = box["rect_type"]
+                    box_name = box["name"]
 
-                circles_final[file_id] = circles
+                    circles = await find_circles_cv2("", rect, rect_type, img=image, circle_precision_percentage=data["circle_precision_percentage"],
+                                                    on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
+
+                    await send_progress(websocket, "Completed processing image.", job["task_id"])
+
+                    if "image_offset" in data and data["image_offset"] != None:
+                        for circle in circles:
+                            circle["center_x"] = circle["center_x"] - data["image_offset"]["x"]
+                            circle["center_y"] = circle["center_y"] - data["image_offset"]["y"]
+
+                    if "image_angle" in data and data["image_angle"] != None:
+                        center = (image.shape[1] // 2, image.shape[0] // 2)
+                        M = cv2.getRotationMatrix2D(center, data["image_angle"], 1)
+                        for circle in circles:
+                            circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
+                    circles_per_box[box_name] = circles
+
+                
+
+                circles_final[file_id] = circles_per_box
+            
+
 
             await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
                 "task_id": job["task_id"],
