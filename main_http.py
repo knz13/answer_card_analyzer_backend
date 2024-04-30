@@ -86,11 +86,6 @@ async def send_job_to_internal_client(client_id: str, job: WebsocketInternalClie
         "command": job.command,
         "data": job.data
     }))
-
-    await socket.websocket.send_text(json.dumps({
-        "command": job.command,
-        "data": job.data
-    }))
     
     for file_id in job.files:
         await send_bytes_in_chunks(socket.websocket,job.data["task_id"],job.files[file_id],file_id)
@@ -151,6 +146,29 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
     
     if len(internal_clients) == 0:
         raise HTTPException(status_code=404, detail="No internal clients connected.")
+
+    if len(internal_clients) == 0:
+        raise HTTPException(status_code=404, detail="No internal clients connected.")
+    
+    chosen_internal_client = random.choice(list(internal_clients.keys()))
+    
+    file_id = random.randbytes(16).hex()
+
+    job = WebsocketInternalClientJob(WebsocketMessageCommand.FIND_CIRCLES, {
+        "task_id": task_id,
+        "filename": file.filename,
+        **json.loads(data)
+    }, {file_id: await file.read()})
+    
+    response = await handle_internal_client_task(internal_clients[chosen_internal_client], job,on_progress=lambda x: send_progress(clients[socket_id], x, task_id) if socket_id in clients else None)
+
+    if type(response) == JSONResponse:
+        return response
+    else:
+        return JSONResponse(content={"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
+            **response["data"],
+            "files": response["files"]
+        }})
 
     try:
         data = json.loads(data)
@@ -213,6 +231,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
         **job.data
     }
 
+
     if len(internal_clients) == 0:
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
@@ -236,7 +255,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
             job.files
         ))
 
-        print(f"Sent job to internal client {internal_client.id}.")
+        print(f"Sent job to internal client {internal_client.id}: {job_data}.")
 
         chunks_per_file = {}
         files_received = {}

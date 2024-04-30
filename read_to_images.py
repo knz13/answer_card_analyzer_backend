@@ -31,7 +31,7 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
             await on_progress(f"Converted PDF, {len(images)} pages")
 
     else:
-        images = [Image.open(bytes_arr)]
+        images = [Image.open(io.BytesIO(bytes_arr))]
         if on_progress != None: 
             await on_progress(f"Read image")
 

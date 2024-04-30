@@ -2,11 +2,15 @@ import asyncio
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import Dict
+from PIL import Image
+import cv2
 from fastapi import UploadFile
+import numpy as np
 import websockets.client as websockets
 import random
 import json
 from queue import SimpleQueue
+from find_circles import find_circles_cv2
 from read_to_images import read_to_images
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
@@ -43,13 +47,15 @@ async def send_bytes_in_chunks(websocket: websockets.WebSocketClientProtocol,tas
         }}))
     
 chunks_per_file_id = {}
-files_received: Dict[str,str] = {}
+files_received: Dict[str,bytearray] = {}
 messages_per_task_id: Dict[str,SimpleQueue] = {}
     
 
 async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol):
     
     files_to_wait_for: list = deepcopy(job["file_ids"])
+
+    print(f"Received job: {job}")
 
     while True:
         if  messages_per_task_id[job["task_id"]].empty():
@@ -60,7 +66,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
         if message["status"] == InternalClientMessageType.FILE_RECEIVED:
             files_to_wait_for.remove(message["data"]["file_id"])     
 
-        if len(files_to_wait_for) > 0:        
+        if len(files_to_wait_for) > 0:     
             continue
     
         await send_progress(websocket, "All files received on internal client, starting job", job["task_id"])
@@ -95,23 +101,78 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                     else:
                         images[key].append(images_inner[key])
 
-        # send images back
+            # send images back
 
-        images_ids = []
+            images_ids = []
 
-        for image in images["images"]:
+            for image in images["images"]:
 
-            images_ids.append(image)
+                images_ids.append(image)
 
-            await send_bytes_in_chunks(websocket,job["task_id"], b64decode(images["images"][image]), image)
-        
-        del images["images"]
-        
-        await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
-            "task_id": job["task_id"],
-            "images_ids": images_ids,
-            **images
-        }}))
+                await send_bytes_in_chunks(websocket,job["task_id"], b64decode(images["images"][image]), image)
+            
+            del images["images"]
+            
+            await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
+                "task_id": job["task_id"],
+                "images_ids": images_ids,
+                **images
+            }}))
+        elif job["command"] == WebsocketMessageCommand.FIND_CIRCLES:
+
+            await send_progress(websocket, "Starting to finding circles in images.", job["task_id"])
+            
+            data = job
+            circles_final = {}
+            
+            for file_id in job["file_ids"]:
+
+                file = files_received[file_id]
+
+                image = Image.open(BytesIO(file))
+
+                await send_progress(websocket, f"Processing image: {file_id}", job["task_id"])
+
+                image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+                if "image_offset" in data and data["image_offset"] != None:
+                    M = np.float32([[1, 0, data["image_offset"]["x"]], [0, 1, data["image_offset"]["y"]]])
+                    image = cv2.warpAffine(image, M, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+                    print(f'Transformed image with offset: {data["image_offset"]}')
+
+                if "image_angle" in data and data["image_angle"] != None:
+                    center = (image.shape[1] // 2, image.shape[0] // 2)
+                    M = cv2.getRotationMatrix2D(center, -data["image_angle"], 1)
+                    image = cv2.warpAffine(image, M, image.shape[1::-1])
+                    print(f'Rotated image with angle: {data["image_angle"]}')
+
+                print(f'Circle precision percentage: {data["circle_precision_percentage"]}')
+
+                if data["circle_precision_percentage"] == None:
+                    data["circle_precision_percentage"] = 1
+
+                circles = await find_circles_cv2("", data["rect"], data["rect_type"], img=image, circle_precision_percentage=data["circle_precision_percentage"],
+                                                on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
+
+                await send_progress(websocket, "Completed processing image.", job["task_id"])
+
+                if "image_offset" in data and data["image_offset"] != None:
+                    for circle in circles:
+                        circle["center_x"] = circle["center_x"] - data["image_offset"]["x"]
+                        circle["center_y"] = circle["center_y"] - data["image_offset"]["y"]
+
+                if "image_angle" in data and data["image_angle"] != None:
+                    center = (image.shape[1] // 2, image.shape[0] // 2)
+                    M = cv2.getRotationMatrix2D(center, data["image_angle"], 1)
+                    for circle in circles:
+                        circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
+
+                circles_final[file_id] = circles
+
+            await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
+                "task_id": job["task_id"],
+                "circles": circles_final
+            }}))
 
 
 async def send_progress(websocket: websockets.WebSocketClientProtocol, message, task_id):
@@ -122,7 +183,7 @@ async def send_progress(websocket: websockets.WebSocketClientProtocol, message, 
     }}))
 
 async def connect_to_websocket():
-    uri = "wss://echo.websocket.org"
+    uri = "ws://24.199.117.75:8000"
 
     if Environment.get_environment() == Environment.DEV:
         uri = "ws://localhost:8000"
@@ -141,7 +202,7 @@ async def connect_to_websocket():
                     messages_per_task_id[response["data"]["task_id"]] = SimpleQueue()
 
                 if "command" in response:
-                    if response["command"] == WebsocketMessageCommand.READ_TO_IMAGES:
+                    if response["command"] == WebsocketMessageCommand.READ_TO_IMAGES or response["command"] == WebsocketMessageCommand.FIND_CIRCLES:
                         asyncio.create_task(handle_job_received({
                             "command": response["command"],
                             **response["data"]
@@ -151,7 +212,7 @@ async def connect_to_websocket():
                         if response["data"]["file_id"] not in chunks_per_file_id:
                             chunks_per_file_id[response["data"]["file_id"]] = bytearray()
                         chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
-                        await send_progress(websocket, f'Received chunk on Internal Client, current size: {len(chunks_per_file_id[response["data"]["file_id"]])}', response["data"]["task_id"])
+                        #await send_progress(websocket, f'Received chunk on Internal Client, current size: {len(chunks_per_file_id[response["data"]["file_id"]])}', response["data"]["task_id"])
 
                     if response["status"] == WebsocketMessageStatus.FINAL_CHUNK:
                         print(f"Received final chunk for file: {response['data']['file_id']}")
