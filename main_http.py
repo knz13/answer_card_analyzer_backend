@@ -52,7 +52,7 @@ async def send_progress(websocket: WebSocket, message, task_id):
         'message': message
     }}))
 
-CHUNK_SIZE = 1024  # 1Mb
+CHUNK_SIZE = 1024 * 200 # 200kb
 
 async def send_bytes_in_chunks(websocket: WebSocket, task_id: str,file_data: bytes,file_id: str):
     #print(f"Sending {len(file_data)} bytes in chunks.")

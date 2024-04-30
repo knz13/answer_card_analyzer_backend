@@ -15,7 +15,7 @@ from read_to_images import read_to_images
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
 
-CHUNK_SIZE = 1024   # 1Mb
+CHUNK_SIZE = 1024 * 200  # 200kb
 
 class InternalClientMessageType:
     FILE_RECEIVED = "fileReceived"
