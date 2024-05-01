@@ -25,7 +25,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.PROD
+        return Environment.DEV
     
 def image_as_encoded(image):
     byte_arr = BytesIO()

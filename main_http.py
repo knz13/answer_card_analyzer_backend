@@ -18,6 +18,9 @@ from starlette.websockets import WebSocket,WebSocketDisconnect,WebSocketClose
 from queue import SimpleQueue
 import random
 
+from fastapi.middleware.cors import CORSMiddleware
+
+
 
 class WebsocketInternalClient:
     def __init__(self,websocket: WebSocket, id: str):
@@ -41,6 +44,18 @@ def image_as_encoded(image):
     return encoded_img
 
 app = FastAPI()
+
+origins = [
+    "*"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 clients = {}  # Dictionary to track WebSocket sessions by ID
@@ -114,8 +129,10 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
     response = await handle_internal_client_task(internal_clients[chosen_internal_client], job,on_progress=lambda x: send_progress(clients[socket_id], x, task_id) if socket_id in clients else None)
 
     if type(response) == JSONResponse:
+        print(f"Error occurred: {response}")
         return response
     else:
+
         return JSONResponse(content={"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
             **response["data"],
             "files": response["files"]
