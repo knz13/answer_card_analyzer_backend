@@ -115,6 +115,7 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
     print(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
 
     if len(internal_clients) == 0:
+        print("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
     chosen_internal_client = random.choice(list(internal_clients.keys()))
@@ -162,11 +163,9 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
     print(f"Received file: {file.filename}")
     
     if len(internal_clients) == 0:
+        print("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
 
-    if len(internal_clients) == 0:
-        raise HTTPException(status_code=404, detail="No internal clients connected.")
-    
     chosen_internal_client = random.choice(list(internal_clients.keys()))
     
     file_id = random.randbytes(16).hex()
@@ -187,59 +186,6 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
             "files": response["files"]
         }})
 
-    try:
-        data = json.loads(data)
-        #print(f"Received data: {data}")
-
-        if socket_id in clients:
-            await send_progress(clients[socket_id], "Starting to process image for circles.", task_id)
-
-        file_data = await file.read()
-
-        image = Image.open(io.BytesIO(file_data))
-
-        image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-        if "image_offset" in data and data["image_offset"] != None:
-            M = np.float32([[1, 0, data["image_offset"]["x"]], [0, 1, data["image_offset"]["y"]]])
-            image = cv2.warpAffine(image, M, image.shape[1::-1], flags=cv2.INTER_LINEAR)
-            print(f'Transformed image with offset: {data["image_offset"]}')
-
-        if "image_angle" in data and data["image_angle"] != None:
-            center = (image.shape[1] // 2, image.shape[0] // 2)
-            M = cv2.getRotationMatrix2D(center, -data["image_angle"], 1)
-            image = cv2.warpAffine(image, M, image.shape[1::-1])
-            print(f'Rotated image with angle: {data["image_angle"]}')
-
-        print(f'Circle precision percentage: {data["circle_precision_percentage"]}')
-
-        if data["circle_precision_percentage"] == None:
-            data["circle_precision_percentage"] = 1
-
-        circles = await find_circles_cv2("", data["rect"], data["rect_type"], img=image, circle_precision_percentage=data["circle_precision_percentage"],
-                                         on_progress= lambda x: send_progress(clients[socket_id], x, task_id) if socket_id in clients else None)
-
-        if socket_id in clients:
-            await send_progress(clients[socket_id], "Completed processing image.", task_id)
-
-        if "image_offset" in data and data["image_offset"] != None:
-            for circle in circles:
-                circle["center_x"] = circle["center_x"] - data["image_offset"]["x"]
-                circle["center_y"] = circle["center_y"] - data["image_offset"]["y"]
-
-        if "image_angle" in data and data["image_angle"] != None:
-            center = (image.shape[1] // 2, image.shape[0] // 2)
-            M = cv2.getRotationMatrix2D(center, data["image_angle"], 1)
-            for circle in circles:
-                circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
-
-        if socket_id in clients:
-            await send_progress(clients[socket_id], "Completed processing image.", task_id)
-        return JSONResponse(content={"status": WebsocketMessageStatus.COMPLETED_TASK, "data": circles})
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
 
 async def handle_internal_client_task(internal_client: WebsocketInternalClient, job: WebsocketInternalClientJob,on_progress=None):
 
@@ -253,6 +199,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
 
 
     if len(internal_clients) == 0:
+        print("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
     print(f"Received files: {len(job.files)}")
