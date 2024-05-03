@@ -50,9 +50,6 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
     width_ratio = image_new_width / img.shape[1]
 
-    if on_progress != None:
-        await on_progress(f"Resizing image to width {image_new_width}")
-
     img = cv2.resize(img,fx=width_ratio,fy=width_ratio,dsize=(0,0))
 
     old_x, old_y,width,height = rectangle.values()

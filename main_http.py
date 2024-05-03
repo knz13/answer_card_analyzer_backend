@@ -248,6 +248,9 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
         **job.data
     }
 
+    if on_progress != None:
+        await on_progress("Sending job to processing server...")
+
 
     if len(internal_clients) == 0:
         raise HTTPException(status_code=404, detail="No internal clients connected.")
