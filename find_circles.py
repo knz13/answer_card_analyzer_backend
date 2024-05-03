@@ -42,7 +42,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
         img = cv2.imread(image_path)
 
-
+    #show_image(img)
 
     # make image 512 width
 
@@ -81,8 +81,9 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
     # add some blur
 
-    crop_img = cv2.GaussianBlur(crop_img, (33, 33), 2.8)
+    crop_img = cv2.GaussianBlur(crop_img, (17, 17), 1.5)
 
+    #show_image(crop_img)
 
     # Convert cropped image to gray scale
     gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
@@ -205,7 +206,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
             print(i)
 
 
-            
+    #show_image(crop_img)       
     
     # now filter circles that are too close to each other
 

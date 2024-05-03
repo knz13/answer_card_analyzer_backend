@@ -54,8 +54,8 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
 
         # resize image to 2000 width if its width is greater than 2000
 
-        if images[i].width > 1500:
-            width_ratio = 1500 / images[i].width
+        if images[i].width > 960:
+            width_ratio = 960 / images[i].width
             images[i] = images[i].resize((int(images[i].width * width_ratio), int(images[i].height * width_ratio)))
 
         #images[i].save(image_path, "PNG")
