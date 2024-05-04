@@ -7,6 +7,7 @@ import cv2
 from fastapi import UploadFile
 import numpy as np
 import websockets.client as websockets
+from websockets.exceptions import ConnectionClosedError
 import random
 import json
 from queue import SimpleQueue
@@ -25,7 +26,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.DEV
+        return Environment.PROD
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -208,46 +209,48 @@ async def connect_to_websocket():
         uri = "ws://localhost:8000"
 
     id = random.randbytes(16).hex()
-    
-    async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{id}"]) as websocket:
-        print(f"Connected to websocket: {uri}")
-        while True:
-            try:
-                response = await websocket.recv()
-                #print(f"Received: {response}")
-                response = json.loads(response)
+    try: 
+        async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{id}"]) as websocket:
+            print(f"Connected to websocket: {uri}")
+            while True:
+                try:
+                    response = await websocket.recv()
+                    #print(f"Received: {response}")
+                    response = json.loads(response)
 
-                if response["data"]["task_id"] not in messages_per_task_id:
-                    messages_per_task_id[response["data"]["task_id"]] = SimpleQueue()
+                    if response["data"]["task_id"] not in messages_per_task_id:
+                        messages_per_task_id[response["data"]["task_id"]] = SimpleQueue()
 
-                if "command" in response:
-                    if response["command"] == WebsocketMessageCommand.READ_TO_IMAGES or response["command"] == WebsocketMessageCommand.FIND_CIRCLES:
-                        asyncio.create_task(handle_job_received({
-                            "command": response["command"],
-                            **response["data"]
-                        },websocket))
-                else:
-                    if response["status"] == WebsocketMessageStatus.SENDING_CHUNK:
-                        if response["data"]["file_id"] not in chunks_per_file_id:
-                            chunks_per_file_id[response["data"]["file_id"]] = bytearray()
-                        chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
-                        #await send_progress(websocket, f'Received chunk on Internal Client, current size: {len(chunks_per_file_id[response["data"]["file_id"]])}', response["data"]["task_id"])
+                    if "command" in response:
+                        if response["command"] == WebsocketMessageCommand.READ_TO_IMAGES or response["command"] == WebsocketMessageCommand.FIND_CIRCLES:
+                            asyncio.create_task(handle_job_received({
+                                "command": response["command"],
+                                **response["data"]
+                            },websocket))
+                    else:
+                        if response["status"] == WebsocketMessageStatus.SENDING_CHUNK:
+                            if response["data"]["file_id"] not in chunks_per_file_id:
+                                chunks_per_file_id[response["data"]["file_id"]] = bytearray()
+                            chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
+                            #await send_progress(websocket, f'Received chunk on Internal Client, current size: {len(chunks_per_file_id[response["data"]["file_id"]])}', response["data"]["task_id"])
 
-                    if response["status"] == WebsocketMessageStatus.FINAL_CHUNK:
-                        print(f"Received final chunk for file: {response['data']['file_id']}")
-                        chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
-                        files_received[response["data"]["file_id"]] = chunks_per_file_id[response["data"]["file_id"]]
-                        del chunks_per_file_id[response["data"]["file_id"]]
+                        if response["status"] == WebsocketMessageStatus.FINAL_CHUNK:
+                            print(f"Received final chunk for file: {response['data']['file_id']}")
+                            chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
+                            files_received[response["data"]["file_id"]] = chunks_per_file_id[response["data"]["file_id"]]
+                            del chunks_per_file_id[response["data"]["file_id"]]
 
-                        await send_progress(websocket, f'Received final chunk on Internal Client, total size: {len(files_received[response["data"]["file_id"]])}', response["data"]["task_id"])
+                            await send_progress(websocket, f'Received final chunk on Internal Client, total size: {len(files_received[response["data"]["file_id"]])}', response["data"]["task_id"])
 
-                        messages_per_task_id[response["data"]["task_id"]].put({"status": InternalClientMessageType.FILE_RECEIVED, "data": {
-                            "file_id": response["data"]["file_id"]
-                        }}) 
+                            messages_per_task_id[response["data"]["task_id"]].put({"status": InternalClientMessageType.FILE_RECEIVED, "data": {
+                                "file_id": response["data"]["file_id"]
+                            }}) 
 
-            except Exception as e:
-                print(f"An error occurred: {e}")
-
+                except Exception as e:
+                    print(f"An error occurred: {e}")
+    except (ConnectionClosedError, OSError):
+            print("Connection lost... retrying in 5 seconds")
+            await asyncio.sleep(5)  # Wait for 5 seconds before retrying
 
 
 
