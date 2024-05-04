@@ -202,7 +202,7 @@ async def send_progress(websocket: websockets.WebSocketClientProtocol, message, 
     }}))
 
 async def connect_to_websocket():
-    uri = "ws://24.199.117.75:8000"
+    uri = "wss://orca-app-h5tlv.ondigitalocean.app"
 
     if Environment.get_environment() == Environment.DEV:
         uri = "ws://localhost:8000"
