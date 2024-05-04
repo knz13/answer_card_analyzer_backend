@@ -320,6 +320,10 @@ async def handle_websocket(websocket: WebSocket):
             del clients[client_id]
 
 
+@app.route("/")
+async def root():
+    return "Hello, World!"
+
 if __name__ == "__main__":
     config = Config()
     config.bind = ["0.0.0.0:8080"]  # bind to localhost on port 8080
