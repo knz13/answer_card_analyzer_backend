@@ -22,8 +22,20 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Make port 8000 available to the world outside this container
-EXPOSE 8000
+# Install Nginx
+RUN apt-get update && apt-get install -y \
+    nginx \
+    && rm -rf /var/lib/apt/lists/*
 
-# Run the command to start your application
-CMD ["python", "main_http.py"]
+# Copy the Nginx configuration file
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Copy the SSL certificate and private key
+COPY server.crt /etc/nginx/server.crt
+COPY server.key /etc/nginx/server.key
+
+# Make port 80 and 443 available to the world outside this container
+EXPOSE 80 443
+
+# Start Nginx and the application
+CMD service nginx start && python main_http.py
