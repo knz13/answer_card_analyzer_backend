@@ -17,6 +17,7 @@ class WebsocketMessageStatus:
     PROGRESS = "progress"
     SENDING_CHUNK = "sendingChunk"
     FINAL_CHUNK = "finalChunk"
+    INTERNAL_CLIENT_REPORT = "internalClientReport"
 
 class BoxRectangleType:
     TYPE_B = "Tipo B"

@@ -58,7 +58,7 @@ app.add_middleware(
 )
 
 
-clients = {}  # Dictionary to track WebSocket sessions by ID
+clients: Dict[str,WebSocket] = {}  # Dictionary to track WebSocket sessions by ID
 internal_clients: Dict[str,WebsocketInternalClient] = {}  # Dictionary to track WebSocket sessions by ID
 
 async def send_progress(websocket: WebSocket, message, task_id):
@@ -277,6 +277,14 @@ async def handle_websocket(websocket: WebSocket):
         print(f"Internal client connected: {id}")
 
         internal_clients[id] = WebsocketInternalClient(websocket,id)
+
+        # tell everyone that a new internal client connected
+
+        for client in clients:
+            await clients[client].send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
+                "num_clients": len(internal_clients),
+            }}))
+
         try:
             while True:
                 message = await websocket.receive_text()
@@ -291,18 +299,32 @@ async def handle_websocket(websocket: WebSocket):
         except WebSocketDisconnect:
             print(f"Internal connection with {id} closed normally.")
         except Exception as e:
-                print(f"An error occurred: {e}")
+            print(f"An error occurred: {e}")
         finally:
 
             if internal_clients[id].jobs == 0:
+                # warn clients that internal client disconnected
+                
                 print(f"Removing internal client {id}.")
                 del internal_clients[id]
             else:
                 print(f"Adding message to remove client {id}")
                 for task in internal_clients[id].messages_per_task:
                     internal_clients[id].messages_per_task[task].put({"status": WebsocketMessageStatus.ERROR,"data": "Internal client disconnected."})
+
+                del internal_clients[id]
             
+            for client in clients:
+                    await clients[client].send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
+                        "num_clients": len(internal_clients),
+                    }}))
     else:
+
+        # send message to client that internal clients are connected
+
+        await websocket.send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
+            "num_clients": len(internal_clients),
+        }}))
         try:
             while True:
                 message = await websocket.receive_json()
