@@ -106,7 +106,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
         await on_progress(f"Finding circles in image...")
     
     # Apply Hough Circle Transformation to find circles
-    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.6, min_dist, param1=70 * circle_precision_percentage, param2=25, minRadius=min_radius, maxRadius=max_radius)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.8, min_dist, param1=70 * circle_precision_percentage, param2=25, minRadius=min_radius, maxRadius=max_radius)
     
 
     if circles is None:
@@ -205,10 +205,32 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
     #show_image(crop_img)       
     
-    # now filter circles that are too close to each other
+    # now filter circles that are too far away from each other
 
-    if on_progress != None:
-        await on_progress(f"Filtering circles that are too close to each other.")
+    if circle_size != None:
+
+        if on_progress != None:
+            await on_progress(f"Filtering circles that are too far away from each other.")
+
+        circles_to_remove = []
+        max_dist = circle_size * 3
+
+        """ for i in range(len(output_circles)):
+
+            closest_circle = None
+            closest_dist = None
+
+            for j in range(i+1,len(output_circles)):
+                dist = distance_between_points((output_circles[i]["center_x"],output_circles[i]["center_y"]),(output_circles[j]["center_x"],output_circles[j]["center_y"]))
+
+                if closest_dist == None or dist < closest_dist:
+                    closest_dist = dist
+                    closest_circle = j
+
+            if closest_dist != None and closest_dist > max_dist:
+                circles_to_remove.append(closest_circle)            
+        
+        output_circles = [output_circles[i] for i in range(len(output_circles)) if i not in circles_to_remove] """
 
 
     # Display the resulting frame

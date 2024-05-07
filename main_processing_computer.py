@@ -26,7 +26,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.DEV
+        return Environment.PROD
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -246,6 +246,9 @@ async def connect_to_websocket():
                                 messages_per_task_id[response["data"]["task_id"]].put({"status": InternalClientMessageType.FILE_RECEIVED, "data": {
                                     "file_id": response["data"]["file_id"]
                                 }}) 
+                    except ConnectionClosedError as e:
+                        print(f"Connection closed: {e}")
+                        break
                     except Exception as e:
                         print(f"An error occurred: {e}")
         except (ConnectionClosedError, OSError):
