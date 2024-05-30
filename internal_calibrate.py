@@ -3,6 +3,8 @@ import numpy as np
 from PIL import Image
 from pdf2image import convert_from_path
 
+from utils import Utils
+
 
 def apply_calibration_to_image(img: Image,calibration_rect):
     # Load the image
@@ -10,7 +12,9 @@ def apply_calibration_to_image(img: Image,calibration_rect):
 
     # draw before
 
-    print(calibration_rect)
+    if Utils.is_debug():
+
+        Utils.log_info(calibration_rect)
     
 
     center, size, angle = calibration_rect
@@ -33,7 +37,9 @@ def apply_calibration_to_image(img: Image,calibration_rect):
     rotated = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_CUBIC)
 
     if angle < -45:
-        show_image(rotated)
+        Utils.log_error("Rotated image is not correct.")
+        if Utils.is_debug():
+            show_image(rotated)
     
     # Get the bounding box of the rotated rectangle
     x = int(center[0] - size[0]/2)
@@ -61,7 +67,9 @@ def apply_calibration_to_image(img: Image,calibration_rect):
 
     
     if angle < -45:
-        show_image(cropped)
+        Utils.log_error("Rotated image is not correct.")
+        if Utils.is_debug():
+            show_image(cropped)
 
     img = cropped
 
@@ -81,6 +89,9 @@ def show_image(image):
         # cv2.waitKey() returns the code of the pressed key
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+
+    cv2.destroyAllWindows()
+
 
 
 def get_calibration_rect_for_image(img_path,img=None):
@@ -156,11 +167,11 @@ def get_calibration_rect_for_image(img_path,img=None):
     fourth_point = (diagonal_pair[0][0] + diagonal_pair[1][0] - remaining_point[0],
                     diagonal_pair[0][1] + diagonal_pair[1][1] - remaining_point[1])
 
-    
-    print(fourth_point)
-    # draw fourth point
+    if Utils.is_debug():
+        Utils.log_info(fourth_point)
+        # draw fourth point
 
-    cv2.circle(img, fourth_point, 10, (0, 0, 255), -1)
+        cv2.circle(img, fourth_point, 10, (0, 0, 255), -1)
 
 
 
@@ -169,11 +180,12 @@ def get_calibration_rect_for_image(img_path,img=None):
     
     rect = cv2.minAreaRect(all_points)
     
+    if Utils.is_debug():
+        Utils.log_info(rect)
+        #cv2.putText(img, str(rect[1]), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    #cv2.putText(img, str(rect[1]), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-    #cv2.putText(img, "w: " + str(iw), (0, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
-    #cv2.putText(img, "h: " + str(ih), (0, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
+        #cv2.putText(img, "w: " + str(iw), (0, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
+        #cv2.putText(img, "h: " + str(ih), (0, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
 
     rect_x, rect_y = rect[0]
     rect_w, rect_h = rect[1]
@@ -184,17 +196,11 @@ def get_calibration_rect_for_image(img_path,img=None):
 
     rect = ((rect_x, rect_y), (rect_w, rect_h), rect[2])
 
-    #print(rect)
-
-    #print(all_points)
-
-    #print(img.shape)
-
-    box = cv2.boxPoints(rect)
-    box = np.int0(box)
-    cv2.drawContours(img, [box], 0, (0, 0, 255), 2)
-
-    #show_image(img)
+    if Utils.is_debug():
+        box = cv2.boxPoints(rect)
+        box = np.int0(box)
+        cv2.drawContours(img, [box], 0, (0, 0, 255), 2)
+        
 
 
     
@@ -206,7 +212,7 @@ def get_calibration_rect_for_image(img_path,img=None):
 
 def get_calibration_center_for_image(image_path,img=None):
 
-    print("Getting calibration center for image...")
+    Utils.log_info("Getting calibration center for image...")
 
     if img is None:
         # Load the image in grayscale

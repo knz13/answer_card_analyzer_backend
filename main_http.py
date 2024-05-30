@@ -7,6 +7,7 @@ import os
 from base64 import b64decode, b64encode
 from find_circles import find_circles, find_circles_cv2, show_image
 from read_to_images import read_to_images
+from utils import Utils
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 import json
 import io
@@ -86,7 +87,7 @@ async def send_bytes_in_chunks(websocket: WebSocket, task_id: str,file_data: byt
         }}))
 
 async def send_job_to_internal_client(client_id: str, job: WebsocketInternalClientJob):
-    print(f"Sending job to internal client {client_id}")
+    Utils.log_info(f"Sending job to internal client {client_id}")
 
     
 
@@ -109,13 +110,13 @@ async def send_job_to_internal_client(client_id: str, job: WebsocketInternalClie
 
 @app.post("/read_to_images")
 async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form(...), socket_id: str = Form(...)):
-    print("Received request to read PDF to images.")
-    print(f"Received file: {file.filename}")
+    Utils.log_info("Received request to read PDF to images.")
+    Utils.log_info(f"Received file: {file.filename}")
 
-    print(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
+    Utils.log_info(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
 
     if len(internal_clients) == 0:
-        print("No internal clients connected.")
+        Utils.log_info("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
     chosen_internal_client = random.choice(list(internal_clients.keys()))
@@ -130,7 +131,7 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
     response = await handle_internal_client_task(internal_clients[chosen_internal_client], job,on_progress=lambda x: send_progress(clients[socket_id], x, task_id) if socket_id in clients else None)
 
     if type(response) == JSONResponse:
-        print(f"Error occurred: {response}")
+        Utils.log_error(f"Error occurred: {response}")
         return response
     else:
 
@@ -159,11 +160,11 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
 
 @app.post('/find_circles')
 async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(...), socket_id: str = Form(...), data: str = Form(...)):
-    print("Received request to find circles.")
-    print(f"Received file: {file.filename}")
+    Utils.log_info("Received request to find circles.")
+    Utils.log_info(f"Received file: {file.filename}")
     
     if len(internal_clients) == 0:
-        print("No internal clients connected.")
+        Utils.log_info("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
 
     chosen_internal_client = random.choice(list(internal_clients.keys()))
@@ -199,16 +200,16 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
 
 
     if len(internal_clients) == 0:
-        print("No internal clients connected.")
+        Utils.log_info("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
-    print(f"Received files: {len(job.files)}")
-    print(f"Socket ID: {internal_client.id}, websocket: {internal_client.websocket}")
+    Utils.log_info(f"Received files: {len(job.files)}")
+    Utils.log_info(f"Socket ID: {internal_client.id}, websocket: {internal_client.websocket}")
     if job.command == WebsocketMessageCommand.READ_TO_IMAGES:
-        print("Received request to read PDF to images.")
+        Utils.log_info("Received request to read PDF to images.")
 
     elif job.command == WebsocketMessageCommand.FIND_CIRCLES:
-        print("Received request to find circles.")
+        Utils.log_info("Received request to find circles.")
         
     try:
 
@@ -222,7 +223,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
             job.files
         ))
 
-        print(f"Sent job to internal client {internal_client.id}: {job_data}.")
+        Utils.log_info(f"Sent job to internal client {internal_client.id}: {job_data}.")
 
         chunks_per_file = {}
         files_received = {}
@@ -233,7 +234,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
                 continue
 
             message = internal_client.messages_per_task[job_data["task_id"]].get()
-            print(f'Internal message on task "{job.data["task_id"]}": {message["status"]}')
+            Utils.log_info(f'Internal message on task "{job.data["task_id"]}": {message["status"]}')
 
             if message["status"] == WebsocketMessageStatus.ERROR:
                 internal_client.jobs -= 1
@@ -251,7 +252,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
                     chunks_per_file[message["data"]["file_id"]] = bytearray()
                 chunks_per_file[message["data"]["file_id"]] += bytearray(b64decode(message["data"]["chunk"]))
 
-                #print(f"Received chunk for file {message['data']['file_id']} with size {len(chunks_per_file[message['data']['file_id']])}.")
+                #Utils.log_info(f"Received chunk for file {message['data']['file_id']} with size {len(chunks_per_file[message['data']['file_id']])}.")
 
             elif message["status"] == WebsocketMessageStatus.FINAL_CHUNK:
                 if message["data"]["file_id"] not in chunks_per_file:
@@ -265,7 +266,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
     except Exception as e:
         internal_client.jobs -= 1
         del internal_client.on_progress_per_task[job_data["task_id"]]
-        print(f"An error occurred: {e}")
+        Utils.log_error(f"An error occurred: {e}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": str(e)})
         
 @app.websocket('/')
@@ -274,7 +275,7 @@ async def handle_websocket(websocket: WebSocket):
     if "sec-websocket-protocol" in websocket.headers and  websocket.headers["sec-websocket-protocol"].startswith("processing-computer-internal"):
         id = websocket.headers["sec-websocket-protocol"].replace("processing-computer-internal-","")
 
-        print(f"Internal client connected: {id}")
+        Utils.log_info(f"Internal client connected: {id}")
 
         internal_clients[id] = WebsocketInternalClient(websocket,id)
 
@@ -297,18 +298,18 @@ async def handle_websocket(websocket: WebSocket):
                     internal_clients[id].messages_per_task[message["data"]["task_id"]].put(message)
 
         except WebSocketDisconnect:
-            print(f"Internal connection with {id} closed normally.")
+            Utils.log_info(f"Internal connection with {id} closed normally.")
         except Exception as e:
-            print(f"An error occurred: {e}")
+            Utils.log_error(f"An error occurred: {e}")
         finally:
 
             if internal_clients[id].jobs == 0:
                 # warn clients that internal client disconnected
                 
-                print(f"Removing internal client {id}.")
+                Utils.log_info(f"Removing internal client {id}.")
                 del internal_clients[id]
             else:
-                print(f"Adding message to remove client {id}")
+                Utils.log_info(f"Adding message to remove client {id}")
                 for task in internal_clients[id].messages_per_task:
                     internal_clients[id].messages_per_task[task].put({"status": WebsocketMessageStatus.ERROR,"data": "Internal client disconnected."})
 
@@ -328,15 +329,15 @@ async def handle_websocket(websocket: WebSocket):
         try:
             while True:
                 message = await websocket.receive_json()
-                print(f"message: {message}")
+                Utils.log_info(f"message: {message}")
                 if message["command"] == "send_id":
                     client_id = message["data"]
                     clients[client_id] = websocket
-                    print(f"Client {client_id} connected.")
+                    Utils.log_info(f"Client {client_id} connected.")
         except WebSocketDisconnect:
-            print(f"Connection with client {client_id} closed.")
+            Utils.log_info(f"Connection with client {client_id} closed.")
         except Exception as e:
-            print(f"An error occurred: {e}")
+            Utils.log_error(f"An error occurred: {e}")
         finally:
             client_id = list(clients.keys())[list(clients.values()).index(websocket)]
             del clients[client_id]

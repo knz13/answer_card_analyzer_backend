@@ -3,6 +3,7 @@ import random
 from PIL import Image
 import cv2
 import numpy as np
+from utils import Utils
 from websocket_types import BoxRectangleType
 
 def replace_all_not_used(text):
@@ -64,9 +65,11 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
     width = int(width * img.shape[1])
     height = int(height * img.shape[0])
 
-    # draw rectangle on image
+    if Utils.is_debug():
 
-    #cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 20)    
+        # draw rectangle on image
+
+        cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 20)    
 
     # show image
 
@@ -146,36 +149,29 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
             if np.mean(circle_cropped) < 180:
                 filled = True
-                cv2.circle(crop_img, (i[0], i[1]), i[2], (255, 0, 0), 2)
+                if Utils.is_debug():
+
+                    cv2.circle(crop_img, (i[0], i[1]), i[2], (255, 0, 0), 2)
             else:
                 filled = False
-                cv2.circle(crop_img, (i[0], i[1]), i[2], (0, 255, 0), 2)
+                if Utils.is_debug():
+
+                    cv2.circle(crop_img, (i[0], i[1]), i[2], (0, 255, 0), 2)
 
             # draw the mean on crop_img in the center of the circle
 
-            #cv2.putText(crop_img, str(int(np.mean(circle_cropped))), (i[0], i[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            if Utils.is_debug():
+                cv2.putText(crop_img, str(int(np.mean(circle_cropped))), (i[0], i[1]), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
 
+            if Utils.is_debug():
+                #Draw the outer circle
+                # Draw the center of the circle
+                cv2.circle(crop_img, (i[0], i[1]), 2, (0, 0, 255), 3)
 
+                # show circle cropped
 
-
-
-
-
-            #print(f"Text in circle: {output_circles[-1]['text']}")
-
-            #Draw the outer circle
-            # Draw the center of the circle
-            cv2.circle(crop_img, (i[0], i[1]), 2, (0, 0, 255), 3)
-
-            # show circle cropped
-
-            #cv2.imshow("cropped",circle_cropped)
-
-            #while True:
-            #    # cv2.waitKey() returns the code of the pressed key
-            #    if cv2.waitKey(1) & 0xFF == ord('q'):
-            #        break 
+                #show_image(circle_cropped)
 
             # adjust circle to the original image
 
@@ -200,7 +196,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
                 "id": random.randbytes(10).hex()
             })
         except Exception as e:
-            print(i)
+            Utils.log_error(i)
 
 
     #show_image(crop_img)       
@@ -232,13 +228,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
         
         output_circles = [output_circles[i] for i in range(len(output_circles)) if i not in circles_to_remove] """
 
-
-    # Display the resulting frame
-    #cv2.imshow('Detected circles',crop_img )
-    #while True:
-    #    # cv2.waitKey() returns the code of the pressed key
-    #    if cv2.waitKey(1) & 0xFF == ord('q'):
-    #        break 
-    #cv2.destroyAllWindows()
+    if Utils.is_debug():
+        show_image(crop_img)
     
     return output_circles

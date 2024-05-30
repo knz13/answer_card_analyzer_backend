@@ -6,6 +6,7 @@ import os
 from base64 import b64encode
 from find_circles import find_circles, find_circles_cv2, show_image
 from read_to_images import read_to_images
+from utils import Utils
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 import json
 import io
@@ -37,10 +38,10 @@ async def send_progress(websocket: WebSocket, message, task_id):
 
 @app.post("/read_to_images")
 async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form(...), socket_id: str = Form(...)):
-    print("Received request to read PDF to images.")
-    print(f"Received file: {file.filename}")
+    Utils.log_info("Received request to read PDF to images.")
+    Utils.log_info(f"Received file: {file.filename}")
 
-    print(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
+    Utils.log_info(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
 
 
 
@@ -56,7 +57,7 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
 
         return JSONResponse(content={"status": WebsocketMessageStatus.COMPLETED_TASK, "data": images})
     except Exception as e:
-        print(f"An error occurred: {e.__traceback__}")
+        Utils.log_error(f"An error occurred: {e.__traceback__}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": str(e)}), 500
     
 
@@ -64,8 +65,8 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
 
 @app.post('/find_circles')
 async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(...), socket_id: str = Form(...), data: str = Form(...)):
-    print("Received request to find circles.")
-    print(f"Received file: {file.filename}")
+    Utils.log_info("Received request to find circles.")
+    Utils.log_info(f"Received file: {file.filename}")
     
     
 
@@ -86,15 +87,15 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
         if "image_offset" in data and data["image_offset"] != None:
             M = np.float32([[1, 0, data["image_offset"]["x"]], [0, 1, data["image_offset"]["y"]]])
             image = cv2.warpAffine(image, M, image.shape[1::-1], flags=cv2.INTER_LINEAR)
-            print(f'Transformed image with offset: {data["image_offset"]}')
+            Utils.log_info(f'Transformed image with offset: {data["image_offset"]}')
 
         if "image_angle" in data and data["image_angle"] != None:
             center = (image.shape[1] // 2, image.shape[0] // 2)
             M = cv2.getRotationMatrix2D(center, -data["image_angle"], 1)
             image = cv2.warpAffine(image, M, image.shape[1::-1])
-            print(f'Rotated image with angle: {data["image_angle"]}')
+            Utils.log_info(f'Rotated image with angle: {data["image_angle"]}')
 
-        print(f'Circle precision percentage: {data["circle_precision_percentage"]}')
+        Utils.log_info(f'Circle precision percentage: {data["circle_precision_percentage"]}')
 
         if data["circle_precision_percentage"] == None:
             data["circle_precision_percentage"] = 1
@@ -120,7 +121,7 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
             await send_progress(clients[socket_id], "Completed processing image.", task_id)
         return JSONResponse(content={"status": WebsocketMessageStatus.COMPLETED_TASK, "data": circles})
     except Exception as e:
-        print(f"An error occurred: {e.__traceback__}")
+        Utils.log_error(f"An error occurred: {e.__traceback__}")
         raise HTTPException(status_code=500, detail=str(e))
 
         
@@ -130,16 +131,16 @@ async def handle_websocket(websocket: WebSocket):
     try:
         while True:
             message = await websocket.receive_json()
-            print(f"message: {message}")
+            Utils.log_info(f"message: {message}")
             if message["command"] == "send_id":
                 client_id = message["data"]
                 clients[client_id] = websocket
-                print(f"Client {client_id} connected.")
+                Utils.log_info(f"Client {client_id} connected.")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        Utils.log_error(f"An error occurred: {e}")
     finally:
         client_id = list(clients.keys())[list(clients.values()).index(websocket)]
-        print(f"Connection with {client_id} closed.")
+        Utils.log_info(f"Connection with {client_id} closed.")
         del clients[client_id]
 
 
