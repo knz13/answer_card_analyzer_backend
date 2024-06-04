@@ -23,13 +23,16 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
         if on_progress != None: 
             await on_progress(f"Converting PDF to images...")
 
+        try:
         
-        
-        images = convert_from_bytes(bytes_arr,thread_count=4)
-        
-        if on_progress != None: 
-            await on_progress(f"Converted PDF, {len(images)} pages")
-
+            images = convert_from_bytes(bytes_arr,thread_count=4)
+            
+            if on_progress != None: 
+                await on_progress(f"Converted PDF, {len(images)} pages")
+        except Exception as e:
+            print("Error converting PDF to images")
+            print(e)
+            return None
     else:
         images = [Image.open(io.BytesIO(bytes_arr))]
         if on_progress != None: 
