@@ -7,6 +7,8 @@ class WebsocketMessageCommand:
     IDENTIFY_CIRCLES = "identifyCircles"
     GET_CALIBRATION = "getCalibration"
     FIND_CIRCLES = "findCircles"
+    PING = "ping"
+
 
 
 
@@ -14,6 +16,7 @@ class WebsocketMessageCommand:
 class WebsocketMessageStatus:
     COMPLETED_TASK = "completedTask"
     ERROR = "error"
+    PONG = "pong"
     PROGRESS = "progress"
     SENDING_CHUNK = "sendingChunk"
     FINAL_CHUNK = "finalChunk"

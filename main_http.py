@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Dict, List
 import cv2
 import numpy as np
@@ -30,6 +31,15 @@ class WebsocketInternalClient:
         self.jobs = 0
         self.messages_per_task: Dict[str,SimpleQueue] = {}
         self.on_progress_per_task = {}
+        self.last_pong = asyncio.get_event_loop().time()
+    
+    async def send_ping(self):
+        
+        await self.websocket.send_text(json.dumps({"command": WebsocketMessageCommand.PING,"data": None}))
+    
+    def received_pong(self):
+        Utils.log_info(f"Received pong from: {self.id}")
+        self.last_pong = asyncio.get_event_loop().time()
     
 class WebsocketInternalClientJob:
     def __init__(self,command: WebsocketMessageCommand, data: Dict,files: Dict[str,bytes] = {}):
@@ -44,7 +54,32 @@ def image_as_encoded(image):
     encoded_img = b64encode(byte_arr.getvalue()).decode('utf-8') # encode as base64
     return encoded_img
 
-app = FastAPI()
+async def ping_internal_clients():
+    Utils.log_info("Starting ping_internal_clients")
+    while True:
+        try:
+            for client_id, client in list(internal_clients.items()):
+                if client.last_pong - asyncio.get_event_loop().time() > 120:
+                    Utils.log_info(f"Internal client {client_id} disconnected due to inactivity.")
+                    await handle_internal_client_disconnect(client_id)
+                    continue
+                try:
+                    Utils.log_info(f"Sending ping to client {client_id} at {asyncio.get_event_loop().time()}.")
+                    await client.send_ping()
+                except Exception as e:
+                    Utils.log_error(f"Failed to send ping to client {client_id}: {e}")
+        except Exception as e:
+            Utils.log_error(f"In function ping_internal_clients: {e}")
+        await asyncio.sleep(20)  # Ping every minute
+
+
+@asynccontextmanager
+async def lifespanFunction(app: FastAPI):
+    asyncio.create_task(ping_internal_clients())
+
+    yield
+
+app = FastAPI(lifespan=lifespanFunction)
 
 origins = [
     "*"
@@ -88,8 +123,6 @@ async def send_bytes_in_chunks(websocket: WebSocket, task_id: str,file_data: byt
 
 async def send_job_to_internal_client(client_id: str, job: WebsocketInternalClientJob):
     Utils.log_info(f"Sending job to internal client {client_id}")
-
-    
 
     socket = internal_clients[client_id]
 
@@ -188,21 +221,26 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
         }})
 
 
-async def handle_internal_client_task(internal_client: WebsocketInternalClient, job: WebsocketInternalClientJob,on_progress=None):
-
+async def handle_internal_client_task(internal_client: WebsocketInternalClient, job: WebsocketInternalClientJob, on_progress=None):
     job_data = {
         "file_ids": list(job.files.keys()),
         **job.data
     }
 
-    if on_progress != None:
+    if on_progress is not None:
         await on_progress("Sending job to processing server...")
-
 
     if len(internal_clients) == 0:
         Utils.log_info("No internal clients connected.")
         raise HTTPException(status_code=404, detail="No internal clients connected.")
     
+    internal_client.on_progress_per_task[job_data["task_id"]] = on_progress
+
+    await send_job_to_internal_client(internal_client.id, WebsocketInternalClientJob(job.command, job_data, job.files))
+    chunks_per_file = {}
+    files_received = {}
+
+
     Utils.log_info(f"Received files: {len(job.files)}")
     Utils.log_info(f"Socket ID: {internal_client.id}, websocket: {internal_client.websocket}")
     if job.command == WebsocketMessageCommand.READ_TO_IMAGES:
@@ -210,25 +248,11 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
 
     elif job.command == WebsocketMessageCommand.FIND_CIRCLES:
         Utils.log_info("Received request to find circles.")
-        
+
     try:
-
-        internal_client.on_progress_per_task[job_data["task_id"]] = on_progress
-        
-        # send job to internal client
-
-        await send_job_to_internal_client(internal_client.id, WebsocketInternalClientJob(
-            job.command,
-            job_data,
-            job.files
-        ))
-
-        Utils.log_info(f"Sent job to internal client {internal_client.id}: {job_data}.")
-
-        chunks_per_file = {}
-        files_received = {}
-
         while True:
+
+            
             if internal_client.messages_per_task[job_data["task_id"]].empty():
                 await asyncio.sleep(0.1)
                 continue
@@ -260,73 +284,48 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
                 chunks_per_file[message["data"]["file_id"]] += bytearray(b64decode(message["data"]["chunk"]))
 
                 files_received[message["data"]["file_id"]] = b64encode(chunks_per_file[message["data"]["file_id"]]).decode('utf-8')
-
+                
                 del chunks_per_file[message["data"]["file_id"]]
-
     except Exception as e:
         internal_client.jobs -= 1
         del internal_client.on_progress_per_task[job_data["task_id"]]
         Utils.log_error(f"An error occurred: {e}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": str(e)})
-        
+    finally:
+        internal_client.jobs -= 1
+        internal_client.on_progress_per_task.pop(job_data["task_id"], None)
+        chunks_per_file.clear()
+
+
+
 @app.websocket('/')
 async def handle_websocket(websocket: WebSocket):
     await websocket.accept()
-    if "sec-websocket-protocol" in websocket.headers and  websocket.headers["sec-websocket-protocol"].startswith("processing-computer-internal"):
-        id = websocket.headers["sec-websocket-protocol"].replace("processing-computer-internal-","")
-
-        Utils.log_info(f"Internal client connected: {id}")
-
-        internal_clients[id] = WebsocketInternalClient(websocket,id)
-
-        # tell everyone that a new internal client connected
-
-        for client in clients:
-            await clients[client].send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
-                "num_clients": len(internal_clients),
-            }}))
-
-        try:
+    client_id = None
+    id = None
+    try:
+        if "sec-websocket-protocol" in websocket.headers and  websocket.headers["sec-websocket-protocol"].startswith("processing-computer-internal"):
+            id = websocket.headers["sec-websocket-protocol"].replace("processing-computer-internal-", "")
+            Utils.log_info(f"Internal client connected: {id}")
+            internal_clients[id] = WebsocketInternalClient(websocket, id)
+            for client in clients.values():
+                await client.send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT, 'data': {"num_clients": len(internal_clients)}}))
+            
             while True:
                 message = await websocket.receive_text()
-                #print(f"Internal message: {message}")
                 message = json.loads(message)
+
+                if message["status"] == WebsocketMessageStatus.PONG:
+                    internal_clients[id].received_pong()
+                    continue
                 if message["status"] == WebsocketMessageStatus.PROGRESS:
                     if message["data"]["task_id"] in internal_clients[id].on_progress_per_task:
                         await internal_clients[id].on_progress_per_task[message["data"]["task_id"]](message["data"]["message"])
-                else:  
+                else:
                     internal_clients[id].messages_per_task[message["data"]["task_id"]].put(message)
-
-        except WebSocketDisconnect:
-            Utils.log_info(f"Internal connection with {id} closed normally.")
-        except Exception as e:
-            Utils.log_error(f"An error occurred: {e}")
-        finally:
-
-            if internal_clients[id].jobs == 0:
-                # warn clients that internal client disconnected
-                
-                Utils.log_info(f"Removing internal client {id}.")
-                del internal_clients[id]
-            else:
-                Utils.log_info(f"Adding message to remove client {id}")
-                for task in internal_clients[id].messages_per_task:
-                    internal_clients[id].messages_per_task[task].put({"status": WebsocketMessageStatus.ERROR,"data": "Internal client disconnected."})
-
-                del internal_clients[id]
-            
-            for client in clients:
-                    await clients[client].send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
-                        "num_clients": len(internal_clients),
-                    }}))
-    else:
-
-        # send message to client that internal clients are connected
-
-        await websocket.send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT,'data': {
-            "num_clients": len(internal_clients),
-        }}))
-        try:
+        else:
+            await websocket.send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT, 'data': {"num_clients": len(internal_clients)}}))
+            client_id = None
             while True:
                 message = await websocket.receive_json()
                 Utils.log_info(f"message: {message}")
@@ -334,13 +333,32 @@ async def handle_websocket(websocket: WebSocket):
                     client_id = message["data"]
                     clients[client_id] = websocket
                     Utils.log_info(f"Client {client_id} connected.")
-        except WebSocketDisconnect:
+    except WebSocketDisconnect:
+        if client_id:
             Utils.log_info(f"Connection with client {client_id} closed.")
-        except Exception as e:
-            Utils.log_error(f"An error occurred: {e}")
-        finally:
-            client_id = list(clients.keys())[list(clients.values()).index(websocket)]
+            clients.pop(client_id, None)
+        if id:
+            await handle_internal_client_disconnect(id)
+    except Exception as e:
+        Utils.log_error(f"An error occurred: {e}")
+    finally:
+
+        if client_id and  client_id in clients:
             del clients[client_id]
+        if id in internal_clients:
+            handle_internal_client_disconnect(id)
+
+async def handle_internal_client_disconnect(id):
+    if internal_clients[id].jobs == 0:
+        Utils.log_info(f"Removing internal client {id}.")
+        del internal_clients[id]
+    else:
+        for task in internal_clients[id].messages_per_task:
+            internal_clients[id].messages_per_task[task].put({"status": WebsocketMessageStatus.ERROR, "data": "Internal client disconnected."})
+        del internal_clients[id]
+    for client in clients.values():
+        await client.send_text(json.dumps({"status": WebsocketMessageStatus.INTERNAL_CLIENT_REPORT, 'data': {"num_clients": len(internal_clients)}}))
+
 
 
 @app.route("/")

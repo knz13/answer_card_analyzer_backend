@@ -27,7 +27,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.PROD
+        return Environment.DEV
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -55,9 +55,11 @@ messages_per_task_id: Dict[str,SimpleQueue] = {}
 
 async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol):
     
-    files_to_wait_for: list = deepcopy(job["file_ids"])
 
     Utils.log_info(f"Received job: {job}")
+
+    files_to_wait_for: list = deepcopy(job["file_ids"])
+
 
     while True:
         if  messages_per_task_id[job["task_id"]].empty():
@@ -72,7 +74,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
             continue
     
         await send_progress(websocket, "All files received on internal client, starting job", job["task_id"])
-
+        
         if job["command"] == WebsocketMessageCommand.READ_TO_IMAGES:
             await send_progress(websocket, "Starting to read PDF to images.", job["task_id"])
 
@@ -223,7 +225,7 @@ async def connect_to_websocket():
     if Environment.get_environment() == Environment.DEV:
         uri = "ws://localhost:8080"
 
-    id = random.randbytes(16).hex()
+    id = random.randbytes(32).hex()
     while True:
         try: 
             async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{id}"]) as websocket:
@@ -234,9 +236,13 @@ async def connect_to_websocket():
                         #Utils.log_info(f"Received: {response}")
                         response = json.loads(response)
 
-                        if response["data"]["task_id"] not in messages_per_task_id:
+
+
+                        if type(response["data"]) == dict and response["data"]["task_id"] not in messages_per_task_id:
                             messages_per_task_id[response["data"]["task_id"]] = SimpleQueue()
 
+
+                        
                         if "command" in response:
                             if response["command"] == WebsocketMessageCommand.READ_TO_IMAGES or response["command"] == WebsocketMessageCommand.FIND_CIRCLES:
                                 Utils.log_info(f"len of files: {len(files_received)}, len of chunks: {len(chunks_per_file_id)}, len of messages: {len(messages_per_task_id)}")
@@ -244,7 +250,11 @@ async def connect_to_websocket():
                                     "command": response["command"],
                                     **response["data"]
                                 },websocket))
+                            if response["command"] == WebsocketMessageCommand.PING:
+                                await websocket.send(json.dumps({"status": WebsocketMessageStatus.PONG}))
                         else:
+                            
+
                             if response["status"] == WebsocketMessageStatus.SENDING_CHUNK:
                                 if response["data"]["file_id"] not in chunks_per_file_id:
                                     chunks_per_file_id[response["data"]["file_id"]] = bytearray()
