@@ -109,7 +109,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
         await on_progress(f"Finding circles in image...")
     
     # Apply Hough Circle Transformation to find circles
-    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.8, min_dist, param1=70 * circle_precision_percentage, param2=25, minRadius=min_radius, maxRadius=max_radius)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 2.7, min_dist, param1=70 * circle_precision_percentage, param2=35, minRadius=min_radius, maxRadius=max_radius)
     
 
     if circles is None:
