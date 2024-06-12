@@ -140,10 +140,6 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
 
             # clamp to prevent acessing negative indices
 
-
-            
-
-
             circle_cropped = crop_img[y_min:y_max,x_min:x_max]
 
             # check if filled (black) circle
@@ -203,37 +199,9 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
         except Exception as e:
             Utils.log_error(i)
 
-
-    #show_image(crop_img)       
-    
-    # now filter circles that are too far away from each other
-
-    if circle_size != None:
-
-        if on_progress != None:
-            await on_progress(f"Filtering circles that are too far away from each other.")
-
-        circles_to_remove = []
-        max_dist = circle_size * 3
-
-        """ for i in range(len(output_circles)):
-
-            closest_circle = None
-            closest_dist = None
-
-            for j in range(i+1,len(output_circles)):
-                dist = distance_between_points((output_circles[i]["center_x"],output_circles[i]["center_y"]),(output_circles[j]["center_x"],output_circles[j]["center_y"]))
-
-                if closest_dist == None or dist < closest_dist:
-                    closest_dist = dist
-                    closest_circle = j
-
-            if closest_dist != None and closest_dist > max_dist:
-                circles_to_remove.append(closest_circle)            
-        
-        output_circles = [output_circles[i] for i in range(len(output_circles)) if i not in circles_to_remove] """
-
     if Utils.is_debug():
         show_image(crop_img)
+
+
     
     return output_circles

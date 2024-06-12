@@ -56,7 +56,7 @@ messages_per_task_id: Dict[str,SimpleQueue] = {}
 async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol):
     
 
-    Utils.log_info(f"Received job: {job}")
+    #Utils.log_info(f"Received job: {job}")
 
     files_to_wait_for: list = deepcopy(job["file_ids"])
 
@@ -169,13 +169,22 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                 Utils.log_info(f"Data in request = {data}")
 
 
-                if data["circle_precision_percentage"] == None:
+                if "circle_precision_percentage" not in data:
                     data["circle_precision_percentage"] = 1
+
+
 
 
                 circles_per_box = {}
 
-                
+                training_data = Utils.load_training_data_for_circles_optimization()
+
+                id = Utils.random_hex(24)
+
+                if f'{data["filename"]}_{data["socket_id"]}' not in training_data:
+                    training_data[f'{data["filename"]}_{data["socket_id"]}'] = {}
+
+                circles_data_for_training = []
 
                 for box in data["boxes"]:
 
@@ -190,6 +199,24 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                                                     circle_precision_percentage=data["circle_precision_percentage"],
                                                     param2=data["param2"],
                                                     on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
+
+                    if "template_circles" in box and box["template_circles"] != None: 
+
+                        circles_data_for_training.append({
+                            "circles": list(map(lambda x: {
+                                "center_x": x["center_x"],
+                                "center_y": x["center_y"],
+                                "radius": x["radius"],
+                            },circles)),
+                            "template_circles": list(map(lambda x: {
+                                "center_x": x["center_x"],
+                                "center_y": x["center_y"],
+                                "radius": x["radius"],
+                            },box["template_circles"])),
+
+                        })
+
+              
 
                     await send_progress(websocket, "Completed processing image.", job["task_id"])
 
@@ -210,6 +237,17 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                 circles_final[file_id] = circles_per_box
             
                 del files_received[file_id]
+
+                training_data[f'{data["filename"]}_{data["socket_id"]}'][Utils.random_hex(20)] = {
+                    "data": {
+                                "dp": data["inverse_ratio_accumulator_resolution"],
+                                "circle_precision_percentage": data["circle_precision_percentage"],
+                                "param2": data["param2"]
+                            },
+                    "circles_data": circles_data_for_training
+                }
+
+                Utils.save_training_data_for_circles_optimization(training_data)
 
 
             await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {

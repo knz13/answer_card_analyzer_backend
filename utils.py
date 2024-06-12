@@ -1,6 +1,9 @@
 
 
 
+import json
+import os
+import random
 from PIL import Image
 import cv2
 import numpy as np
@@ -25,6 +28,27 @@ class Utils:
     @staticmethod
     def log_info(message):
         print(f"Info: {message}")
+
+    @staticmethod
+    def random_hex(length):
+        return random.randbytes(length).hex()
+    
+    @staticmethod
+    def load_training_data_for_circles_optimization():
+        if not os.path.exists("training_data_circles_optimization.json"):
+            with open("training_data_circles_optimization.json", "w") as f:
+                json.dump({}, f)
+        with open("training_data_circles_optimization.json", "r") as f:
+            return json.load(f)
+        
+    @staticmethod
+
+
+    @staticmethod
+    def save_training_data_for_circles_optimization(training_data):
+        with open("training_data_circles_optimization.json", "w") as f:
+            json.dump(training_data, f)
+        
 
     @staticmethod
     # Automatic brightness and contrast optimization with optional histogram clipping

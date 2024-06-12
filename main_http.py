@@ -157,6 +157,7 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
     file_id = random.randbytes(16).hex()
 
     job = WebsocketInternalClientJob(WebsocketMessageCommand.READ_TO_IMAGES, {
+        "socket_id": socket_id,
         "task_id": task_id,
         "filename": file.filename,
     }, {file_id: await file.read()})
@@ -205,6 +206,7 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
     file_id = random.randbytes(16).hex()
 
     job = WebsocketInternalClientJob(WebsocketMessageCommand.FIND_CIRCLES, {
+        "socket_id": socket_id,
         "task_id": task_id,
         "filename": file.filename,
         **json.loads(data)
