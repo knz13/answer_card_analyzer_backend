@@ -59,7 +59,7 @@ async def ping_internal_clients():
     while True:
         try:
             for client_id, client in list(internal_clients.items()):
-                if client.last_pong - asyncio.get_event_loop().time() > 120:
+                if asyncio.get_event_loop().time() - client.last_pong > 120:
                     Utils.log_info(f"Internal client {client_id} disconnected due to inactivity.")
                     await handle_internal_client_disconnect(client_id)
                     continue
@@ -254,7 +254,6 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
     try:
         while True:
 
-            
             if internal_client.messages_per_task[job_data["task_id"]].empty():
                 await asyncio.sleep(0.1)
                 continue
