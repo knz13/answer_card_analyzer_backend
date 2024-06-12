@@ -28,4 +28,4 @@ class BoxRectangleType:
     MATRICULA = "Matricula"
     OUTRO = "Outro"
     TEMP = "Temp"
-    EXEMPLO_CIRCULO = "Exemplo de Círculo"
+    EXEMPLO_CIRCULO = "Exemplo de Circulo"

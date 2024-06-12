@@ -43,6 +43,7 @@ async def find_circles(img, rectangle,rectangle_type,on_progress=None):
 async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkness_threshold = 180/255,img=None,on_progress=None,circle_size=None,circle_precision_percentage=1):
     # Load the image
 
+    Utils.log_info(f"Got circle size: {circle_size}")
 
     if img is None:
 
@@ -95,19 +96,21 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
 
    # _, gray = cv2.threshold(gray, 205, 255, cv2.THRESH_BINARY)
 
-    min_dist = 70
-    min_radius = 24
-    max_radius = 32
+    min_dist = 68
+    min_radius = 34
+    max_radius = 39
 
     if circle_size != None:
         # circle size is a percentage of width of the image
         
-        circle_size = circle_size * width
+        circle_size = circle_size * img.shape[1]
 
-        min_radius = int(circle_size * 0.8)
-        max_radius = int(circle_size * 1.2)
-        min_dist = int(circle_size * 2.2)
+        min_radius = int(circle_size * 1)
+        max_radius = int(circle_size * 1.15)
+        min_dist = int(circle_size * 1.8)
 
+        Utils.log_info(f"Circle size: {circle_size} | min_radius: {min_radius} | max_radius: {max_radius} | min_dist: {min_dist}")
+    
 
 
     if on_progress != None:
@@ -198,6 +201,56 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
             })
         except Exception as e:
             Utils.log_error(i)
+
+    # filter circles
+
+
+    if circle_size != None:
+
+        if rectangle_type == BoxRectangleType.MATRICULA:
+            # find all "rows"
+
+            Utils.log_info(f"Finding rows...")
+
+            rows = []
+
+            for circle in output_circles:
+                found = False
+                for row in rows:
+                    #Utils.log_info(f"row: {row} | circle: {circle}")
+                    if distance_between_points((circle["center_x"],circle["center_y"]),(row[0]["center_x"],row[0]["center_y"])) < circle_size * 1.5:
+                        row.append(circle)
+                        found = True
+                        break
+                if not found:
+                    rows.append([circle])
+
+                    #Utils.log_info(f"Current rows: {rows}")
+
+            # sort rows by y
+
+            rows = sorted(rows,key=lambda x: x[0]["center_y"])
+
+            # find the most common number of circles in a row
+
+            most_common = max(set([len(row) for row in rows]), key = [len(row) for row in rows].count)
+
+            # filter rows with less than most_common
+
+
+            circles_to_remove = []
+
+            for row in rows:
+                if abs(len(row) - most_common) > 1:
+                    Utils.log_info(f"Removing row: {row}")
+                    circles_to_remove = circles_to_remove + [circle["id"] for circle in row]
+
+            output_circles = [circle for circle in output_circles if circle["id"] not in circles_to_remove]
+
+    
+
+
+            
 
     if Utils.is_debug():
         show_image(crop_img)

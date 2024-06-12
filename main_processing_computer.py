@@ -13,7 +13,7 @@ import json
 from queue import SimpleQueue
 from find_circles import find_circles_cv2
 from read_to_images import read_to_images
-from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
+from websocket_types import BoxRectangleType, WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
 from utils import Utils
 
@@ -182,7 +182,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
                 has_template_circles = "template_circles" in data["boxes"][0] and  data["boxes"][0]["template_circles"] != None
 
-                Utils.log_info(f"Has template circles: {has_template_circles} | {data['boxes'][0]}")
+                #Utils.log_info(f"Has template circles: {has_template_circles} | {data['boxes'][0]}")
 
                 if has_template_circles:
                     training_data = Utils.load_training_data_for_circles_optimization()
@@ -191,19 +191,37 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
                     circles_data_for_training = []
 
+
+                # sort boxes with exemplo circles first
+
+                data["boxes"] = sorted(data["boxes"], key=lambda x: 0 if x["rect_type"] == BoxRectangleType.EXEMPLO_CIRCULO else 1)
+
+
                 for box in data["boxes"]:
 
                     rect = box["rect"]
                     rect_type = box["rect_type"]
+
+                    Utils.log_info(f"Finding circles for box: {box}")
                     box_name = box["name"]
+
+                    circle_size = data["circle_size"] if "circle_size" in data else None
+
+                    if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
+                        circle_size = None
+
 
                     circles = await find_circles_cv2("", rect, rect_type, 
                                                     img=image,
+                                                    circle_size=circle_size,
                                                     dp=data["inverse_ratio_accumulator_resolution"],
                                                     darkness_threshold=data["darkness_threshold"],
                                                     circle_precision_percentage=data["circle_precision_percentage"],
                                                     param2=data["param2"],
                                                     on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
+
+                    if rect_type == BoxRectangleType.EXEMPLO_CIRCULO and len(circles) > 0:
+                        data["circle_size"] = circles[0]["radius"] / image.shape[1]
 
                     if has_template_circles: 
 
@@ -218,10 +236,9 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                                 "center_y": x["center_y"],
                                 "radius": x["radius"],
                             },box["template_circles"])),
-
                         })
 
-              
+
 
                     await send_progress(websocket, "Completed processing image.", job["task_id"])
 
@@ -235,6 +252,14 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                         M = cv2.getRotationMatrix2D(center, data["image_angle"], 1)
                         for circle in circles:
                             circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
+
+                    if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
+
+                        for circle in circles:
+                            circle["center_x"] = circle["center_x"] / image.shape[1]
+                            circle["center_y"] = circle["center_y"] / image.shape[0]
+                            circle["radius"] = circle["radius"] / image.shape[1]
+
                     circles_per_box[box_name] = circles
 
                 
@@ -245,13 +270,18 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
 
                 if has_template_circles:
+
+                    with open("training_images/" + f'{data["filename"]}_{data["socket_id"]}.png', "wb") as f:
+                        f.write(file)
+
                     training_data[f'{data["filename"]}_{data["socket_id"]}'][Utils.random_hex(20)] = {
                         "data": {
                                     "dp": data["inverse_ratio_accumulator_resolution"],
                                     "circle_precision_percentage": data["circle_precision_percentage"],
                                     "param2": data["param2"]
                                 },
-                        "circles_data": circles_data_for_training
+                        "circles_data": circles_data_for_training,
+                        "image": f'{data["filename"]}_{data["socket_id"]}.png'
                     }
 
                     Utils.save_training_data_for_circles_optimization(training_data)
@@ -290,8 +320,10 @@ async def connect_to_websocket():
                         response = await websocket.recv()
                         #Utils.log_info(f"Received: {response}")
                         response = json.loads(response)
+                        
 
 
+                        
 
                         if type(response["data"]) == dict and response["data"]["task_id"] not in messages_per_task_id:
                             messages_per_task_id[response["data"]["task_id"]] = SimpleQueue()
@@ -315,7 +347,7 @@ async def connect_to_websocket():
                                     chunks_per_file_id[response["data"]["file_id"]] = bytearray()
                                 chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
                                 #await send_progress(websocket, f'Received chunk on Internal Client, current size: {len(chunks_per_file_id[response["data"]["file_id"]])}', response["data"]["task_id"])
-
+                            
                             if response["status"] == WebsocketMessageStatus.FINAL_CHUNK:
                                 Utils.log_info(f"Received final chunk for file: {response['data']['file_id']}")
                                 chunks_per_file_id[response["data"]["file_id"]] += bytearray(b64decode(response["data"]["chunk"]))
@@ -327,6 +359,10 @@ async def connect_to_websocket():
                                 messages_per_task_id[response["data"]["task_id"]].put({"status": InternalClientMessageType.FILE_RECEIVED, "data": {
                                     "file_id": response["data"]["file_id"]
                                 }}) 
+
+                            if response["status"] == WebsocketMessageStatus.ERROR:
+                                Utils.log_error(f"Received error: {response['data']['message']}")
+                                break
                     except ConnectionClosedError as e:
                         Utils.log_error(f"Connection closed: {e}")
                         break
