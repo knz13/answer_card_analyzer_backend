@@ -177,14 +177,19 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
                 circles_per_box = {}
 
-                training_data = Utils.load_training_data_for_circles_optimization()
 
-                id = Utils.random_hex(24)
 
-                if f'{data["filename"]}_{data["socket_id"]}' not in training_data:
-                    training_data[f'{data["filename"]}_{data["socket_id"]}'] = {}
 
-                circles_data_for_training = []
+                has_template_circles = "template_circles" in data["boxes"][0] and  data["boxes"][0]["template_circles"] != None
+
+                Utils.log_info(f"Has template circles: {has_template_circles} | {data['boxes'][0]}")
+
+                if has_template_circles:
+                    training_data = Utils.load_training_data_for_circles_optimization()
+                    if f'{data["filename"]}_{data["socket_id"]}' not in training_data:
+                        training_data[f'{data["filename"]}_{data["socket_id"]}'] = {}
+
+                    circles_data_for_training = []
 
                 for box in data["boxes"]:
 
@@ -200,7 +205,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                                                     param2=data["param2"],
                                                     on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
 
-                    if "template_circles" in box and box["template_circles"] != None: 
+                    if has_template_circles: 
 
                         circles_data_for_training.append({
                             "circles": list(map(lambda x: {
@@ -238,16 +243,18 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
             
                 del files_received[file_id]
 
-                training_data[f'{data["filename"]}_{data["socket_id"]}'][Utils.random_hex(20)] = {
-                    "data": {
-                                "dp": data["inverse_ratio_accumulator_resolution"],
-                                "circle_precision_percentage": data["circle_precision_percentage"],
-                                "param2": data["param2"]
-                            },
-                    "circles_data": circles_data_for_training
-                }
 
-                Utils.save_training_data_for_circles_optimization(training_data)
+                if has_template_circles:
+                    training_data[f'{data["filename"]}_{data["socket_id"]}'][Utils.random_hex(20)] = {
+                        "data": {
+                                    "dp": data["inverse_ratio_accumulator_resolution"],
+                                    "circle_precision_percentage": data["circle_precision_percentage"],
+                                    "param2": data["param2"]
+                                },
+                        "circles_data": circles_data_for_training
+                    }
+
+                    Utils.save_training_data_for_circles_optimization(training_data)
 
 
             await websocket.send(json.dumps({"status": WebsocketMessageStatus.COMPLETED_TASK, "data": {
