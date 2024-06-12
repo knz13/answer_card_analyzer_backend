@@ -166,11 +166,16 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
                 Utils.log_info(f'Circle precision percentage: {data["circle_precision_percentage"]}')
 
+                Utils.log_info(f"Data in request = {data}")
+
+
                 if data["circle_precision_percentage"] == None:
                     data["circle_precision_percentage"] = 1
 
 
                 circles_per_box = {}
+
+                
 
                 for box in data["boxes"]:
 
@@ -178,7 +183,12 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                     rect_type = box["rect_type"]
                     box_name = box["name"]
 
-                    circles = await find_circles_cv2("", rect, rect_type, img=image, circle_precision_percentage=data["circle_precision_percentage"],
+                    circles = await find_circles_cv2("", rect, rect_type, 
+                                                    img=image,
+                                                    dp=data["inverse_ratio_accumulator_resolution"],
+                                                    darkness_threshold=data["darkness_threshold"],
+                                                    circle_precision_percentage=data["circle_precision_percentage"],
+                                                    param2=data["param2"],
                                                     on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
 
                     await send_progress(websocket, "Completed processing image.", job["task_id"])

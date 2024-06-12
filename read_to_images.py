@@ -4,11 +4,14 @@ import io
 import os
 import random
 from PIL import Image
+import cv2
 from pdf2image import convert_from_path,convert_from_bytes
 import json
 from find_circles import find_circles, find_circles_cv2
 from internal_calibrate import apply_calibration_to_image, get_calibration_center_for_image,get_calibration_rect_for_image
 from fastapi import UploadFile
+
+from utils import Utils
 
 
 async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=None):
@@ -75,6 +78,12 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
 
 
             img=  apply_calibration_to_image(images[i], calibration_rect)
+
+            img,_alpha,_beta = Utils.automatic_brightness_and_contrast(img)
+
+            # transform from cv2
+
+            img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
             #img.save(image_path, "PNG")
 

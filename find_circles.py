@@ -29,13 +29,18 @@ def show_image(image,text="image"):
 def distance_between_points(point1, point2):
     return ((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)/2
 
+
+
+
 async def find_circles(img, rectangle,rectangle_type,on_progress=None):
     
     img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
     return await find_circles_cv2(img, rectangle,rectangle_type,img=img,on_progress=on_progress)
 
-async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_progress=None,circle_size=None,circle_precision_percentage=1):
+
+
+async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkness_threshold = 180/255,img=None,on_progress=None,circle_size=None,circle_precision_percentage=1):
     # Load the image
 
 
@@ -109,7 +114,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
         await on_progress(f"Finding circles in image...")
     
     # Apply Hough Circle Transformation to find circles
-    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 2.7, min_dist, param1=70 * circle_precision_percentage, param2=35, minRadius=min_radius, maxRadius=max_radius)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp, min_dist, param1=70 * circle_precision_percentage, param2=param2, minRadius=min_radius, maxRadius=max_radius)
     
 
     if circles is None:
@@ -147,7 +152,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,img=None,on_prog
 
             filled = False
 
-            if np.mean(circle_cropped) < 180:
+            if np.mean(circle_cropped) < darkness_threshold * 255:
                 filled = True
                 if Utils.is_debug():
 
