@@ -14,6 +14,10 @@ class Utils:
     __debug = False
 
     @staticmethod
+    def get_version():
+        return "0.0.1"
+
+    @staticmethod
     def is_debug():
         return Utils.__debug
     

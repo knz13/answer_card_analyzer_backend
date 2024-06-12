@@ -306,7 +306,23 @@ async def handle_websocket(websocket: WebSocket):
     id = None
     try:
         if "sec-websocket-protocol" in websocket.headers and  websocket.headers["sec-websocket-protocol"].startswith("processing-computer-internal"):
-            id = websocket.headers["sec-websocket-protocol"].replace("processing-computer-internal-", "")
+
+            version = websocket.headers["sec-websocket-protocol"].split("-")[-2]
+
+            if version == "internal":
+                await websocket.send_text(json.dumps({"status": WebsocketMessageStatus.ERROR, 'data': "Missing version."}))
+
+                return
+            
+            if version != Utils.get_version():
+                await websocket.send_text(json.dumps({"status": WebsocketMessageStatus.ERROR, 'data': "Version mismatch. Please update your code with the main repo"}))
+
+                return
+
+
+
+
+            id = websocket.headers["sec-websocket-protocol"].split("-")[-1]
             Utils.log_info(f"Internal client connected: {id}")
             internal_clients[id] = WebsocketInternalClient(websocket, id)
             for client in clients.values():

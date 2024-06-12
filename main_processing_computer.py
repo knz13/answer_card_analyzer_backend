@@ -283,7 +283,7 @@ async def connect_to_websocket():
     id = random.randbytes(32).hex()
     while True:
         try: 
-            async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{id}"]) as websocket:
+            async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{Utils.get_version()}-{id}"]) as websocket:
                 Utils.log_info(f"Connected to websocket: {uri}")
                 while True:
                     try:
