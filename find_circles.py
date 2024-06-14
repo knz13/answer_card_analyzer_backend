@@ -38,6 +38,119 @@ async def find_circles(img, rectangle,rectangle_type,on_progress=None):
 
     return await find_circles_cv2(img, rectangle,rectangle_type,img=img,on_progress=on_progress)
 
+async def find_circles_fallback(image_path,rectangle,rectangle_type,template_circles,darkness_threshold=180/255,on_progress=None,img=None):
+
+    if img is None:
+
+        img = cv2.imread(image_path)
+
+    
+
+
+
+    image_new_width = 4000
+
+    width_ratio = image_new_width / img.shape[1]
+
+    img = cv2.resize(img,fx=width_ratio,fy=width_ratio,dsize=(0,0))
+
+
+    
+    
+
+    old_x, old_y,width,height = rectangle.values()
+    
+    if old_x > 1 or old_y > 1 or width > 1 or height > 1 or old_x < 0 or old_y < 0 or width < 0 or height < 0:
+        raise ValueError("The rectangle values must be between 0 and 1.")
+
+    # transform to absolute
+        
+    x = int(old_x * img.shape[1])
+    y = int(old_y * img.shape[0])
+    width = int(width * img.shape[1])
+    height = int(height * img.shape[0])
+
+    if Utils.is_debug():
+
+        # draw rectangle on image
+
+        cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 20)    
+
+    # show image
+
+    # crop image on rectangle
+
+    crop_img = img[y:y+height, x:x+width]
+
+    template_circles = list(map(lambda circ: [
+        int((circ["center_x"] * img.shape[1]) - x),
+        int((circ["center_y"] * img.shape[0]) -y),
+        int(circ["radius"]*img.shape[1])],template_circles))
+    
+    if on_progress != None:
+        await on_progress(f"Finding circles in image...")
+
+    
+
+    output_circles = []
+
+    for i in template_circles:
+        y_min = max(i[1] - i[2],0)
+        x_min = max(i[0]-i[2],0)
+        y_max = min(i[1] + i[2],crop_img.shape[0])
+        x_max = min(i[0] + i[2],crop_img.shape[1])
+
+        Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
+
+        circle_cropped = crop_img[y_min:y_max,x_min:x_max]
+
+        # check if filled (black) circle
+
+        filled = False
+
+        if np.mean(circle_cropped) < darkness_threshold * 255:
+
+            filled = True
+
+            if Utils.is_debug():
+
+                cv2.circle(crop_img, (i[0], i[1]), i[2], (255, 0, 0), 2)
+
+        else:
+            filled = False
+
+            if Utils.is_debug():
+
+                cv2.circle(crop_img, (i[0], i[1]), i[2], (0, 255, 0), 2)
+
+        # draw the mean on crop_img in the center of the circle
+
+        i[0] = i[0] + x
+
+        i[1] = i[1] + y
+
+        # now use the width_ratio
+
+        i[0] = i[0] / width_ratio
+
+        i[1] = i[1] / width_ratio
+
+        i[2] = i[2] / width_ratio
+
+        output_circles.append({
+            "center_x": float(i[0]),
+            "center_y": float(i[1]),
+            "radius": float(i[2]),
+            "filled": filled,
+            "id": random.randbytes(10).hex()
+        })
+
+    if Utils.is_debug():
+        show_image(crop_img)
+
+    return output_circles
+        
+
 
 
 async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkness_threshold = 180/255,img=None,on_progress=None,circle_size=None,circle_precision_percentage=1):
@@ -139,6 +252,8 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
         y_max = min(i[1] + i[2],crop_img.shape[0])
         x_max = min(i[0] + i[2],crop_img.shape[1])
         
+        Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
+
         try:
 
             # clamp to prevent acessing negative indices

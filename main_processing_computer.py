@@ -11,7 +11,7 @@ from websockets.exceptions import ConnectionClosedError
 import random
 import json
 from queue import SimpleQueue
-from find_circles import find_circles_cv2
+from find_circles import find_circles_cv2, find_circles_fallback
 from read_to_images import read_to_images
 from websocket_types import BoxRectangleType, WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
@@ -27,7 +27,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.PROD
+        return Environment.DEV
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -173,23 +173,19 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                     data["circle_precision_percentage"] = 1
 
 
-
-
                 circles_per_box = {}
-
-
-
 
                 has_template_circles = "template_circles" in data["boxes"][0] and  data["boxes"][0]["template_circles"] != None
 
                 #Utils.log_info(f"Has template circles: {has_template_circles} | {data['boxes'][0]}")
 
-                if has_template_circles:
+                if has_template_circles and not data["use_fallback_method"]:
                     training_data = Utils.load_training_data_for_circles_optimization()
                     if f'{data["filename"]}_{data["socket_id"]}' not in training_data:
                         training_data[f'{data["filename"]}_{data["socket_id"]}'] = {}
 
                     circles_data_for_training = []
+
 
 
                 # sort boxes with exemplo circles first
@@ -201,29 +197,43 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
                     rect = box["rect"]
                     rect_type = box["rect_type"]
-
-                    Utils.log_info(f"Finding circles for box: {box}")
                     box_name = box["name"]
-
                     circle_size = data["circle_size"] if "circle_size" in data else None
-
                     if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
                         circle_size = None
 
+                    if has_template_circles and data["use_fallback_method"]:
+                        Utils.log_info(f"Finding circles for box: {box_name} using template circles method. (fallback)")
 
-                    circles = await find_circles_cv2("", rect, rect_type, 
-                                                    img=image,
-                                                    circle_size=circle_size,
-                                                    dp=data["inverse_ratio_accumulator_resolution"],
-                                                    darkness_threshold=data["darkness_threshold"],
-                                                    circle_precision_percentage=data["circle_precision_percentage"],
-                                                    param2=data["param2"],
-                                                    on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
+                        circles = await find_circles_fallback("",
+                            rect,
+                            rectangle_type=rect_type,
+                            template_circles=box["template_circles"],
+                            darkness_threshold=data["darkness_threshold"],
+                            img=image,
+                            on_progress= lambda x: send_progress(websocket, x, job["task_id"])
+                                                              )
+                        
+                    else:
+
+                        Utils.log_info(f"Finding circles for box: {box_name} using VC method. (computer vision)")
+
+
+                        
+
+                        circles = await find_circles_cv2("", rect, rect_type, 
+                                                        img=image,
+                                                        circle_size=circle_size,
+                                                        dp=data["inverse_ratio_accumulator_resolution"],
+                                                        darkness_threshold=data["darkness_threshold"],
+                                                        circle_precision_percentage=data["circle_precision_percentage"],
+                                                        param2=data["param2"],
+                                                        on_progress= lambda x: send_progress(websocket, x, job["task_id"]))
 
                     if rect_type == BoxRectangleType.EXEMPLO_CIRCULO and len(circles) > 0:
                         data["circle_size"] = circles[0]["radius"] / image.shape[1]
 
-                    if has_template_circles: 
+                    if has_template_circles and not data["use_fallback_method"]: 
 
                         circles_data_for_training.append({
                             "circles": list(map(lambda x: {
@@ -253,12 +263,12 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                         for circle in circles:
                             circle["center_x"],circle["center_y"] = cv2.transform(np.array([[circle["center_x"],circle["center_y"]]]).reshape(-1,1,2), M).reshape(2)
 
-                    if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
+                    #if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
 
-                        for circle in circles:
-                            circle["center_x"] = circle["center_x"] / image.shape[1]
-                            circle["center_y"] = circle["center_y"] / image.shape[0]
-                            circle["radius"] = circle["radius"] / image.shape[1]
+                    for circle in circles:
+                        circle["center_x"] = circle["center_x"] / image.shape[1]
+                        circle["center_y"] = circle["center_y"] / image.shape[0]
+                        circle["radius"] = circle["radius"] / image.shape[1]
 
                     circles_per_box[box_name] = circles
 
@@ -269,7 +279,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                 del files_received[file_id]
 
 
-                if has_template_circles:
+                if has_template_circles and not data["use_fallback_method"]:
 
                     with open("training_images/" + f'{data["filename"]}_{data["socket_id"]}.png', "wb") as f:
                         f.write(file)
