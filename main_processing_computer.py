@@ -27,7 +27,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.DEV
+        return Environment.PROD
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -219,7 +219,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                         Utils.log_info(f"Finding circles for box: {box_name} using VC method. (computer vision)")
 
 
-                        
+
 
                         circles = await find_circles_cv2("", rect, rect_type, 
                                                         img=image,
