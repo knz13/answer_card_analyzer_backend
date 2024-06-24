@@ -378,9 +378,13 @@ async def connect_to_websocket():
                         break
                     except Exception as e:
                         Utils.log_error(f"An error occurred: {e}")
-        except (ConnectionClosedError, OSError):
-                Utils.log_error("Connection lost... retrying in 5 seconds")
-                await asyncio.sleep(5)  # Wait for 5 seconds before retrying
+        
+        except Exception as e:
+                Utils.log_error(f"An error occurred while connecting to websocket: {e}")
+
+        finally:
+            Utils.log_info("Connection closed... retrying in 5 seconds")
+            await asyncio.sleep(5)
 
 
 

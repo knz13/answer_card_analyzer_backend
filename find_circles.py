@@ -31,7 +31,6 @@ def distance_between_points(point1, point2):
 
 
 
-
 async def find_circles(img, rectangle,rectangle_type,on_progress=None):
     
     img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -100,7 +99,7 @@ async def find_circles_fallback(image_path,rectangle,rectangle_type,template_cir
         y_max = min(i[1] + i[2],crop_img.shape[0])
         x_max = min(i[0] + i[2],crop_img.shape[1])
 
-        Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
+        #Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
 
         circle_cropped = crop_img[y_min:y_max,x_min:x_max]
 
@@ -252,7 +251,7 @@ async def find_circles_cv2(image_path, rectangle,rectangle_type,param2,dp,darkne
         y_max = min(i[1] + i[2],crop_img.shape[0])
         x_max = min(i[0] + i[2],crop_img.shape[1])
         
-        Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
+        #Utils.log_info(f"y_min: {y_min} | x_min: {x_min} | y_max: {y_max} | x_max: {x_max}")
 
         try:
 

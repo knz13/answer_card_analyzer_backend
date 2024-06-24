@@ -9,6 +9,11 @@ import cv2
 import numpy as np
 
 
+class CircleIdentificationMethods:
+    VC = "VC"
+    SIMPLE = "SIMPLE"
+    SELF_IMPROVING_AI = "SELF_IMPROVING_AI"
+
 class Utils:
 
     __debug = False
@@ -32,6 +37,11 @@ class Utils:
     @staticmethod
     def log_info(message):
         print(f"Info: {message}")
+        
+
+    @staticmethod
+    def log_important_info(message):
+        print(f"Important Info: {message}")
 
     @staticmethod
     def random_hex(length):
