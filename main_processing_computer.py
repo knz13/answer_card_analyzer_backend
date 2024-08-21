@@ -391,6 +391,6 @@ async def connect_to_websocket():
 
 if __name__ == "__main__":
 
-    #Utils.set_debug(True)
+    Utils.set_debug(True)
 
     asyncio.run(connect_to_websocket())
