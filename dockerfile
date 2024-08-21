@@ -27,4 +27,4 @@ RUN apt-get update && apt-get install -y \
 EXPOSE 80 443
 
 # Start Nginx and the application
-CMD service nginx start && python main_processing_computer
+CMD  python main_processing_computer
