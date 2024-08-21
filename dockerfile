@@ -38,4 +38,4 @@ COPY server.key /etc/nginx/server.key
 EXPOSE 80 443
 
 # Start Nginx and the application
-CMD service nginx start && python main_http.py
+CMD service nginx start && python main_processing_computer
