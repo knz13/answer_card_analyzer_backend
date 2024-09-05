@@ -16,7 +16,11 @@ from read_to_images import read_to_images
 from websocket_types import BoxRectangleType, WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
 from utils import Utils
+import psutil
+import os
+import sys
 
+MEMORY_THRESHOLD_PERCENT = 90  # Set threshold for max memory usage
 CHUNK_SIZE = 1024 * 200  # 200kb
 
 class InternalClientMessageType:
@@ -387,10 +391,40 @@ async def connect_to_websocket():
             await asyncio.sleep(5)
 
 
+async def monitor_memory():
+    """
+    Monitors the memory usage and restarts the script if memory exceeds a threshold.
+    """
+    process = psutil.Process(os.getpid())  # Get current process info
+    while True:
+        mem_info = process.memory_info()
+        system_memory = psutil.virtual_memory()
+        used_memory_percent = system_memory.percent
+        
+        if used_memory_percent > MEMORY_THRESHOLD_PERCENT:
+            print(f"Memory usage is too high ({used_memory_percent}%). Restarting the script.")
+            await reset_script()
 
+        await asyncio.sleep(5)  # Check every 5 seconds
+
+async def reset_script():
+    """
+    Resets the script by terminating the current process and restarting it.
+    """
+    print("Resetting the script...")
+
+    # check if python or python3 is available
+
+    if sys.executable:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+async def main():
+    # Start memory monitoring task
+    asyncio.create_task(monitor_memory())
+    
+    # Your existing asyncio tasks...
+    await connect_to_websocket()  # Example of existing main function
 
 if __name__ == "__main__":
-
-    Utils.set_debug(True)
-
-    asyncio.run(connect_to_websocket())
+    Utils.set_debug(False)
+    asyncio.run(main())
