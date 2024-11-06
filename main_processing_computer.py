@@ -284,6 +284,9 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
 
 
                 if has_template_circles and not data["use_fallback_method"]:
+                    
+                    if not os.path.exists("training_images"):
+                        os.makedirs("training_images")
 
                     with open("training_images/" + f'{data["filename"]}_{data["socket_id"]}.png', "wb") as f:
                         f.write(file)
