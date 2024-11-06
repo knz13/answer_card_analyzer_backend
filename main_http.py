@@ -9,6 +9,7 @@ from base64 import b64decode, b64encode
 from find_circles import find_circles, find_circles_cv2, show_image
 from read_to_images import read_to_images
 from utils import Utils
+from fastapi.responses import HTMLResponse
 from websocket_types import WebsocketMessageCommand, WebsocketMessageStatus
 import json
 import io
@@ -378,9 +379,60 @@ async def handle_internal_client_disconnect(id):
 
 
 
-@app.route("/")
+
+
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return "Hello, World!"
+    num_clients = len(clients)
+    num_internal_clients = len(internal_clients)
+    client_info = "".join(
+        [
+            f"<tr><td>{client_id}</td></tr>"
+            for client_id in clients.keys()
+        ]
+    )
+    internal_client_info = "".join(
+        [
+            f"<tr><td>{client_id}</td><td>{client.jobs}</td></tr>"
+            for client_id, client in internal_clients.items()
+        ]
+    )
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>WebSocket Clients Overview</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            h2 {{ color: #333; }}
+        </style>
+    </head>
+    <body>
+        <h2>WebSocket Clients Overview</h2>
+        <p><strong>Total Clients Connected:</strong> {num_clients}</p>
+        <p><strong>Total Internal Clients Connected:</strong> {num_internal_clients}</p>
+        <h3>Client IDs</h3>
+        <table>
+            <tr><th>Client ID</th></tr>
+            {client_info}
+        </table>
+        <h3>Internal Client Details</h3>
+        <table>
+            <tr><th>Internal Client ID</th><th>Jobs in Progress</th></tr>
+            {internal_client_info}
+        </table>
+    </body>
+    </html>
+    """
+    return html_content
+
 
 if __name__ == "__main__":
     config = Config()

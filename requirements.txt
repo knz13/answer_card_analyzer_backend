@@ -6,3 +6,4 @@ websockets
 hypercorn
 fastapi
 python-multipart
+psutil
