@@ -283,7 +283,7 @@ async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol)
                 del files_received[file_id]
 
 
-                if has_template_circles and not data["use_fallback_method"]:
+                if False and has_template_circles and not data["use_fallback_method"]:
                     
                     if not os.path.exists("training_images"):
                         os.makedirs("training_images")
