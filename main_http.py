@@ -304,7 +304,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
     except Exception as e:
         internal_client.jobs -= 1
         del internal_client.on_progress_per_task[job_data["task_id"]]
-        Utils.log_error(f"An error occurred: {e}")
+        Utils.log_error(f"An error occurred: {e.with_traceback()}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": str(e)})
     finally:
         internal_client.jobs -= 1
