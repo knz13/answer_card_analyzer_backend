@@ -145,6 +145,13 @@ async def send_job_to_internal_client(client_id: str, job: WebsocketInternalClie
 @app.post("/read_to_images")
 async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form(...), socket_id: str = Form(...)):
     Utils.log_info("Received request to read PDF to images.")
+
+    # check if file is valid
+
+    if file.content_type != "application/pdf":
+        Utils.log_error(f"Invalid file type: {file.content_type}")
+        return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": "Invalid file type."})
+
     Utils.log_info(f"Received file: {file.filename}")
 
     Utils.log_info(f"Socket ID: {socket_id}, websocket: {clients[socket_id]}")
