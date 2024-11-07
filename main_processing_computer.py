@@ -378,7 +378,7 @@ async def connect_to_websocket():
                                 }}) 
 
                             if response["status"] == WebsocketMessageStatus.ERROR:
-                                Utils.log_error(f"Received error: {response["error"]}")
+                                Utils.log_error(f"Received error: {response['error']}")
                                 break
                     except ConnectionClosedError as e:
                         Utils.log_error(f"Connection closed: {e}")
