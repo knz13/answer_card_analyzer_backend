@@ -148,7 +148,7 @@ async def read_to_images_route(file: UploadFile = File(...), task_id: str = Form
 
     # check if file is valid
 
-    if file.content_type != "application/pdf":
+    if file.content_type != "application/pdf" or file.content_type != "application/octet-stream":
         Utils.log_error(f"Invalid file type: {file.content_type}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": "Invalid file type."})
 
