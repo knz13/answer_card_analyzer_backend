@@ -255,12 +255,18 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
     try:
         while True:
 
+            if job_data["task_id"] not in internal_client.messages_per_task:
+                Utils.log_info(f"Task {job_data['task_id']} not found in internal client {internal_client.id}.")
+                internal_client.jobs -= 1
+                del internal_client.on_progress_per_task[job_data["task_id"]]
+                return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": "Task not found."})
+            
             if internal_client.messages_per_task[job_data["task_id"]].empty():
                 await asyncio.sleep(0.1)
                 continue
 
             message = internal_client.messages_per_task[job_data["task_id"]].get()
-            Utils.log_info(f'Internal message on task "{job.data["task_id"]}": {message["status"]}')
+            Utils.log_info(f'Internal message on task "{job.data["task_id"]}": {message["status"]} - {message["error"]}')
 
             if message["status"] == WebsocketMessageStatus.ERROR:
                 internal_client.jobs -= 1
