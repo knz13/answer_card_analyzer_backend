@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, List
 import cv2
 import numpy as np
+import traceback
 from PIL import Image
 import os
 from base64 import b64decode, b64encode
@@ -273,7 +274,8 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
                 continue
 
             message = internal_client.messages_per_task[job_data["task_id"]].get()
-            Utils.log_info(f'Internal message on task "{job.data["task_id"]}": {message["status"]} - {message["error"]}')
+
+            Utils.log_info(f'Internal message on task "{job.data["task_id"]}": {message["status"]}')
 
             if message["status"] == WebsocketMessageStatus.ERROR:
                 internal_client.jobs -= 1
@@ -304,7 +306,7 @@ async def handle_internal_client_task(internal_client: WebsocketInternalClient, 
     except Exception as e:
         internal_client.jobs -= 1
         del internal_client.on_progress_per_task[job_data["task_id"]]
-        Utils.log_error(f"An error occurred: {e.__traceback__}")
+        Utils.log_error(f"An error occurred: {traceback.format_exc()}")
         return JSONResponse(content={"status": WebsocketMessageStatus.ERROR, "error": str(e)})
     finally:
         internal_client.jobs -= 1
