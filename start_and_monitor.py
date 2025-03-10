@@ -86,7 +86,7 @@ def restart_process_if_crashed(process, command):
 
 def main():
     REPO_DIR = "./"  # Replace with the path to your repository
-    START_COMMAND = "python main_processing_computer.py"
+    START_COMMAND = "python3 main_processing_computer.py"
     CHECK_INTERVAL = 10  # Interval in seconds to check for updates
 
     dir = os.path.dirname(os.path.abspath(__file__))
