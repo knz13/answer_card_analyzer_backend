@@ -57,7 +57,7 @@ def print_logs_in_real_time(process):
     """Print logs from the subprocess in real time."""
     def stream_output(stream, prefix):
         for line in iter(stream.readline, b""):
-            message = f"{prefix}: {line.decode().strip()}"
+            message = f"{prefix}: {line}"
             log_message(message)
     
     # Create threads for stdout and stderr
