@@ -36,7 +36,6 @@ def pull_updates(repo_dir):
     log_message("Python: Performing a hard reset before pulling updates.")
     subprocess.run(["git", "reset", "--hard", "origin/main"], check=True)
     subprocess.run(["git", "pull", "origin", "main"], check=True)
-    subprocess.run(["npm", "install"], check=True)
 
 def start_process(command):
     """Start a subprocess with the given command and print logs in real time."""
