@@ -58,7 +58,6 @@ def print_logs_in_real_time(process):
         for line in iter(stream.readline, b""):
             if line != "":
                 message = f"{prefix}: {line}"
-                message = message.removesuffix("\n")
                 log_message(message)
     
     # Create threads for stdout and stderr
