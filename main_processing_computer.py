@@ -11,11 +11,14 @@ from websockets.exceptions import ConnectionClosedError
 import random
 import json
 from queue import SimpleQueue
+
+from websockets.uri import WebSocketURI
 from find_circles import find_circles_cv2, find_circles_fallback
 from read_to_images import read_to_images
 from websocket_types import BoxRectangleType, WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
 from utils import Utils
+from websockets.asyncio.client import connect
 import psutil
 import os
 import sys
@@ -39,7 +42,7 @@ def image_as_encoded(image):
     encoded_img = b64encode(byte_arr.getvalue()).decode('utf-8') # encode as base64
     return encoded_img
 
-async def send_bytes_in_chunks(websocket: websockets.WebSocketClientProtocol,task_id: str, file_data: bytes,file_id: str):
+async def send_bytes_in_chunks(websocket: websockets.ClientProtocol,task_id: str, file_data: bytes,file_id: str):
     Utils.log_info(f"Sending file in chunks: {file_id}, size: {len(file_data)}")
     for i in range(0, len(file_data), CHUNK_SIZE):
         chunk = file_data[i:i+CHUNK_SIZE]
@@ -57,7 +60,7 @@ files_received: Dict[str,bytearray] = {}
 messages_per_task_id: Dict[str,SimpleQueue] = {}
     
 
-async def handle_job_received(job,websocket: websockets.WebSocketClientProtocol):
+async def handle_job_received(job,websocket: websockets.ClientProtocol):
     try:
         files_to_wait_for: list = deepcopy(job["file_ids"])
 
@@ -284,7 +287,7 @@ async def handle_find_circles(job, websocket):
         }
     }))
 
-async def send_progress(websocket: websockets.WebSocketClientProtocol, message, task_id):
+async def send_progress(websocket: websockets.ClientProtocol, message, task_id):
     Utils.log_info(f"Sending progress: {message}")
     await websocket.send(json.dumps({"status": WebsocketMessageStatus.PROGRESS,'data': {
         'task_id': task_id,
@@ -300,7 +303,7 @@ async def connect_to_websocket():
     id = random.randbytes(32).hex()
     while True:
         try: 
-            async with websockets.connect(uri,subprotocols=[f"processing-computer-internal-{Utils.get_version()}-{id}"]) as websocket:
+            async with connect(uri,subprotocols=[f"processing-computer-internal-{Utils.get_version()}-{id}"]) as websocket:
                 Utils.log_info(f"Connected to websocket: {uri}")
                 while True:
                     try:
