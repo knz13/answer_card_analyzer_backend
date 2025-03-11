@@ -45,7 +45,6 @@ def start_process(command):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         shell=True,
-        bufsize=1,                 # Line-buffered
         text=True,                 # Decode bytes to string automatically
         preexec_fn=os.setsid
     )
