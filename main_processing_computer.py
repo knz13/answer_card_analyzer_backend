@@ -458,5 +458,5 @@ async def main():
     await connect_to_websocket()  # Example of existing main function
 
 if __name__ == "__main__":
-    Utils.set_debug(True)
+    Utils.set_debug(False)
     asyncio.run(main())
