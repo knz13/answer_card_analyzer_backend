@@ -1,36 +1,37 @@
-
 import argparse
 import io
 import os
 import random
+import tempfile
 from PIL import Image
 import cv2
-from pdf2image import convert_from_path,convert_from_bytes
+from pdf2image import convert_from_bytes
 import json
 from find_circles import find_circles, find_circles_cv2
-from internal_calibrate import apply_calibration_to_image, get_calibration_center_for_image,get_calibration_rect_for_image
+from internal_calibrate import (
+    apply_calibration_to_image,
+    get_calibration_center_for_image,
+    get_calibration_rect_for_image,
+)
 from fastapi import UploadFile
 
 from utils import Utils
 
 
-async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=None):
+async def read_to_images(file: UploadFile, needs_calibration=True, on_progress=None):
     print("Reading data to images...")
 
-    # read each page of the pdf to images
-
+    # Read file bytes
     bytes_arr = await file.read()
 
     if file.filename.endswith(".pdf"):
-
-        if on_progress != None: 
-            await on_progress(f"Converting PDF to images...")
+        if on_progress:
+            await on_progress("Converting PDF to images...")
 
         try:
-        
-            images = convert_from_bytes(bytes_arr,thread_count=4)
-            
-            if on_progress != None: 
+            images = convert_from_bytes(bytes_arr, thread_count=4)
+
+            if on_progress:
                 await on_progress(f"Converted PDF, {len(images)} pages")
         except Exception as e:
             print("Error converting PDF to images")
@@ -38,80 +39,62 @@ async def read_to_images(file: UploadFile,needs_calibration=True,on_progress=Non
             return None
     else:
         images = [Image.open(io.BytesIO(bytes_arr))]
-        if on_progress != None: 
-            await on_progress(f"Read image")
+        if on_progress:
+            await on_progress("Read image")
 
-    images_paths = []
     final_json = {
         "images": {},
         "image_calibration_rects": {},
-        "image_sizes": {}
+        "image_sizes": {},
     }
-    
-    for i in range(len(images)):
 
-        if on_progress != None: 
-                await on_progress(f"Saving image {i} to temporary directory.")
-    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for i, image in enumerate(images):
+            if on_progress:
+                await on_progress(f"Processing image {i}...")
 
-        randomHash = random.randbytes(8).hex()
+            random_hash = random.randbytes(8).hex()
+            image_path = os.path.join(temp_dir, f"image_{random_hash}.png")
 
-        image_path = os.path.abspath(f"out/image_{randomHash}.png")
+            print(f"Saving image to {image_path}")
 
-        # resize image to 2000 width if its width is greater than 2000
+            # Resize if width is greater than 800
+            if image.width > 800:
+                width_ratio = 800 / image.width
+                image = image.resize(
+                    (int(image.width * width_ratio), int(image.height * width_ratio))
+                )
 
-        if images[i].width > 800:
-            width_ratio = 800 / images[i].width
-            images[i] = images[i].resize((int(images[i].width * width_ratio), int(images[i].height * width_ratio)))
+            # save to file
 
-        #images[i].save(image_path, "PNG")
+            image.save(image_path)
 
-        # crop and rotate to straighten and then save
-        if needs_calibration:
+            if needs_calibration:
+                calibration_rect = get_calibration_rect_for_image(image_path, img=image)
+                if calibration_rect is None:
+                    await on_progress(f"Calibration rect not found for image {i}, are you sure it is a valid gabarito?")
+                    continue
+                if on_progress:
+                    await on_progress(f"Applying calibration to image {i}")
 
-            calibration_rect = get_calibration_rect_for_image(image_path,img=images[i])
-            if on_progress != None: 
-                await on_progress(f"Applying calibration to image {i}")
+                img = apply_calibration_to_image(image, calibration_rect)
+                img, _alpha, _beta = Utils.automatic_brightness_and_contrast(img)
+                img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-            print(f"Calibration rect: {calibration_rect}")
-            print(f"Image size: {images[i].width}, {images[i].height}")
+                if on_progress:
+                    await on_progress(f"Applied calibration to image {i}")
 
+                final_json["image_calibration_rects"][random_hash] = {"x": 0.0, "y": 0.0}
+            else:
+                img = image
 
-            img=  apply_calibration_to_image(images[i], calibration_rect)
-
-            img,_alpha,_beta = Utils.automatic_brightness_and_contrast(img)
-
-            # transform from cv2
-
-            img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-
-            #img.save(image_path, "PNG")
-
-            if on_progress != None: 
-                await on_progress(f"Applied calibration to image {i}")
-
-          
-
-            final_json["image_calibration_rects"][randomHash] = {
-                "x": float(0),
-                "y": float(0)
+            final_json["images"][random_hash] = img
+            final_json["image_sizes"][random_hash] = {
+                "width": float(img.width),
+                "height": float(img.height),
             }
 
-        
-        
-        final_json["images"][randomHash] = img
-        final_json["image_sizes"][randomHash] = {
-            "width": float(img.width),
-            "height": float(img.height)
-            
-        }
-
-
-
     if not needs_calibration:
-        return images_paths
+        return list(final_json["images"].keys())
 
-    
     return final_json
-
-        

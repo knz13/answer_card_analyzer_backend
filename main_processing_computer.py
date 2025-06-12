@@ -11,7 +11,7 @@ from websockets.exceptions import ConnectionClosedError
 import random
 import json
 from queue import SimpleQueue
-
+import traceback
 from websockets.uri import WebSocketURI
 from find_circles import find_circles_cv2, find_circles_fallback
 from read_to_images import read_to_images
@@ -34,7 +34,7 @@ class Environment:
     DEV = "DEV"
 
     def get_environment():
-        return Environment.PROD
+        return Environment.DEV
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -152,7 +152,8 @@ async def handle_read_to_images(job, websocket):
                     images[key].extend(images_inner[key])
 
         except Exception as e:
-            Utils.log_error(f"Error processing file {file_id}: {str(e)}")
+            Utils.log_error(f"Error processing file {file_id}: {str(e)} {traceback.format_exc()}")
+
             raise
 
     await send_progress(websocket, "Sending images back to server...", job["task_id"])
@@ -176,10 +177,16 @@ async def handle_read_to_images(job, websocket):
     }))
 
 async def handle_find_circles(job, websocket):
-    await send_progress(websocket, "Starting to finding circles in images.", job["task_id"])
+    await send_progress(websocket, "Starting to find circles in images.", job["task_id"])
     circles_final = {}
     
-    for file_id in job["file_ids"]:
+    total_files = len(job["file_ids"])
+    
+    # Add overall progress message
+    if total_files > 1:
+        await send_progress(websocket, f"Processing {total_files} pages for circle detection...", job["task_id"])
+    
+    for file_index, file_id in enumerate(job["file_ids"]):
         try:
             if file_id not in files_received:
                 raise Exception(f"File {file_id} not found")
@@ -194,7 +201,12 @@ async def handle_find_circles(job, websocket):
                 Utils.log_error(f"Error loading image {file_id}: {str(e)}")
                 continue
 
-            await send_progress(websocket, f"Processing image: {file_id}", job["task_id"])
+            # Create page info for progress messages
+            page_info = ""
+            if total_files > 1:
+                page_info = f"[Page {file_index + 1}/{total_files}] "
+
+            await send_progress(websocket, f"{page_info}Processing image: {file_id}\nStarting page analysis...", job["task_id"])
 
             # Apply image transformations
             if job.get("image_offset"):
@@ -210,8 +222,9 @@ async def handle_find_circles(job, websocket):
             
             # Sort boxes with exemplo circles first
             boxes = sorted(job.get("boxes", []), key=lambda x: 0 if x.get("rect_type") == BoxRectangleType.EXEMPLO_CIRCULO else 1)
+            total_boxes = len(boxes)
 
-            for box in boxes:
+            for box_index, box in enumerate(boxes):
                 try:
                     rect = box.get("rect")
                     rect_type = box.get("rect_type")
@@ -224,6 +237,14 @@ async def handle_find_circles(job, websocket):
                     if rect_type == BoxRectangleType.EXEMPLO_CIRCULO:
                         circle_size = None
 
+                    # Prepare rectangle info for progress tracking
+                    rectangle_info = {
+                        'index': box_index + 1,
+                        'total': total_boxes,
+                        'name': box_name,
+                        'page_info': page_info  # Add page info to rectangle info
+                    }
+
                     if job.get("use_fallback_method") and box.get("template_circles"):
                         circles = await find_circles_fallback("",
                             rect,
@@ -231,7 +252,7 @@ async def handle_find_circles(job, websocket):
                             template_circles=box["template_circles"],
                             darkness_threshold=job.get("darkness_threshold", 0),
                             img=cv_image,
-                            on_progress=lambda x: send_progress(websocket, x, job["task_id"])
+                            on_progress=lambda x: send_progress(websocket, f"{page_info}{x}", job["task_id"])
                         )
                     else:
                         circles = await find_circles_cv2("", rect, rect_type, 
@@ -241,7 +262,8 @@ async def handle_find_circles(job, websocket):
                             darkness_threshold=job.get("darkness_threshold", 0),
                             circle_precision_percentage=job.get("circle_precision_percentage", 1),
                             param2=job.get("param2", 30),
-                            on_progress=lambda x: send_progress(websocket, x, job["task_id"])
+                            on_progress=lambda x: send_progress(websocket, f"{page_info}{x}", job["task_id"]),
+                            rectangle_info=rectangle_info
                         )
 
                     # Process circles
@@ -274,10 +296,26 @@ async def handle_find_circles(job, websocket):
                     circles_per_box[box_name] = []
 
             circles_final[file_id] = circles_per_box
+            
+            # Add page completion summary
+            total_circles_on_page = sum(len(circles) for circles in circles_per_box.values())
+            page_progress = f"({file_index + 1}/{total_files})" if total_files > 1 else ""
+            await send_progress(websocket, f"{page_info}✅ Page {file_index + 1} complete! {page_progress}\nFound {total_circles_on_page} total circles across {len(circles_per_box)} regions", job["task_id"])
 
         except Exception as e:
             Utils.log_error(f"Error processing file {file_id}: {str(e)}")
             circles_final[file_id] = {}
+            # Add error message for this page
+            page_progress = f"({file_index + 1}/{total_files})" if total_files > 1 else ""
+            await send_progress(websocket, f"{page_info}❌ Page {file_index + 1} failed {page_progress}\nError: {str(e)}", job["task_id"])
+
+    # Add final summary for multi-page documents
+    if total_files > 1:
+        total_circles_all_pages = sum(
+            sum(len(circles) for circles in page_circles.values()) 
+            for page_circles in circles_final.values()
+        )
+        await send_progress(websocket, f"🎉 All {total_files} pages processed!\nTotal circles found: {total_circles_all_pages} across all pages", job["task_id"])
 
     await websocket.send(json.dumps({
         "status": WebsocketMessageStatus.COMPLETED_TASK,
@@ -288,7 +326,7 @@ async def handle_find_circles(job, websocket):
     }))
 
 async def send_progress(websocket: websockets.ClientProtocol, message, task_id):
-    Utils.log_info(f"Sending progress: {message}")
+    #Utils.log_info(f"Sending progress: {message}")
     await websocket.send(json.dumps({"status": WebsocketMessageStatus.PROGRESS,'data': {
         'task_id': task_id,
         'message': message
@@ -298,7 +336,7 @@ async def connect_to_websocket():
     uri = "wss://orca-app-h5tlv.ondigitalocean.app"
 
     if Environment.get_environment() == Environment.DEV:
-        uri = "ws://localhost:8080"
+        uri = "ws://localhost:8000"
 
     id = random.randbytes(32).hex()
     while True:
@@ -420,5 +458,5 @@ async def main():
     await connect_to_websocket()  # Example of existing main function
 
 if __name__ == "__main__":
-    Utils.set_debug(False)
+    Utils.set_debug(True)
     asyncio.run(main())

@@ -7,3 +7,5 @@ hypercorn
 fastapi
 python-multipart
 psutil
+
+pytesseract

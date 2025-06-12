@@ -24,7 +24,7 @@ import random
 
 from fastapi.middleware.cors import CORSMiddleware
 
-
+IS_DEV = True
 
 class WebsocketInternalClient:
     def __init__(self,websocket: WebSocket, id: str):
@@ -452,5 +452,7 @@ async def root():
 if __name__ == "__main__":
     config = Config()
     config.bind = ["0.0.0.0:8080"]  # bind to localhost on port 8080
+    if IS_DEV:
+        config.bind = ["0.0.0.0:8000"]  # bind to localhost on port 8000
     asyncio.run(serve(app, config))
     #socketio.run(app,host='0.0.0.0',port=8000,log_output=True)

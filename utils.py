@@ -9,6 +9,27 @@ import cv2
 import numpy as np
 
 
+def show_image(image, text="image"):
+    # Handle different image types
+    if len(image.shape) == 2:  # If single channel (grayscale or markers)
+        # Convert to 8-bit unsigned if needed
+        if image.dtype != np.uint8:
+            image = np.uint8(image * (255 / image.max()))
+        # Convert to BGR (OpenCV default)
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    
+    # Now convert BGR to RGB for display
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    cv2.imshow(text, image)
+
+    # Wait until 'q' is pressed
+    while True:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cv2.destroyAllWindows()
+
 class CircleIdentificationMethods:
     VC = "VC"
     SIMPLE = "SIMPLE"
@@ -16,7 +37,7 @@ class CircleIdentificationMethods:
 
 class Utils:
 
-    __debug = False
+    __debug = True
 
     @staticmethod
     def get_version():

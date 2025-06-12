@@ -128,6 +128,7 @@ async def find_circles_route(file: UploadFile = File(...), task_id: str = Form(.
 @app.websocket('/')
 async def handle_websocket(websocket: WebSocket):
     await websocket.accept()
+    client_id = None
     try:
         while True:
             message = await websocket.receive_json()
@@ -139,9 +140,9 @@ async def handle_websocket(websocket: WebSocket):
     except Exception as e:
         Utils.log_error(f"An error occurred: {e}")
     finally:
-        client_id = list(clients.keys())[list(clients.values()).index(websocket)]
-        Utils.log_info(f"Connection with {client_id} closed.")
-        del clients[client_id]
+        if client_id and client_id in clients:
+            Utils.log_info(f"Connection with {client_id} closed.")
+            del clients[client_id]
 
 
 if __name__ == "__main__":
