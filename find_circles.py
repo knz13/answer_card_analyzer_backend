@@ -347,7 +347,7 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
     dp_values = [1,1.2]
     param1_values = [0.4]
     param2_values = [2,5,9]
-    threshold_values = [224,228,233,237,243]  # Different threshold values to test
+    threshold_values = [220,224,228,233,237,243]  # Different threshold values to test
     min_dist_values = [min_dist]
     
     total_combinations = len(dp_values) * len(param1_values) * len(param2_values) * len(threshold_values) * len(min_dist_values)
