@@ -21,10 +21,13 @@ from starlette.responses import JSONResponse
 from starlette.websockets import WebSocket,WebSocketDisconnect,WebSocketClose
 from queue import SimpleQueue
 import random
+from config_loader import config
 
 from fastapi.middleware.cors import CORSMiddleware
 
-IS_DEV = True
+# Load HTTP configuration from environment
+HTTP_CONFIG = config.get_http_config()
+IS_DEV = HTTP_CONFIG['is_dev']
 
 class WebsocketInternalClient:
     def __init__(self,websocket: WebSocket, id: str):
@@ -450,9 +453,19 @@ async def root():
 
 
 if __name__ == "__main__":
-    config = Config()
-    config.bind = ["0.0.0.0:8080"]  # bind to localhost on port 8080
-    if IS_DEV:
-        config.bind = ["0.0.0.0:8000"]  # bind to localhost on port 8000
-    asyncio.run(serve(app, config))
+    # Load and apply configuration
+    if config.is_debug_mode():
+        config.print_config_summary()
+    
+    Utils.set_debug(config.is_debug_mode())
+    
+    # Configure HTTP server
+    hypercorn_config = Config()
+    hypercorn_config.bind = [f"{HTTP_CONFIG['host']}:{HTTP_CONFIG['port']}"]
+    
+    print(f"🚀 Starting HTTP server on {HTTP_CONFIG['host']}:{HTTP_CONFIG['port']}")
+    print(f"🔧 Environment: {'Development' if IS_DEV else 'Production'}")
+    print(f"🐛 Debug Mode: {'Enabled' if config.is_debug_mode() else 'Disabled'}")
+    
+    asyncio.run(serve(app, hypercorn_config))
     #socketio.run(app,host='0.0.0.0',port=8000,log_output=True)

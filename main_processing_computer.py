@@ -22,8 +22,12 @@ from websockets.asyncio.client import connect
 import psutil
 import os
 import sys
+from config_loader import config
 
-MEMORY_THRESHOLD_PERCENT = 90  # Set threshold for max memory usage
+# Load memory configuration from environment
+MEMORY_CONFIG = config.get_memory_config()
+MEMORY_THRESHOLD_PERCENT = MEMORY_CONFIG['threshold_percent']
+CHECK_INTERVAL = MEMORY_CONFIG['check_interval']
 CHUNK_SIZE = 1024 * 200  # 200kb
 
 class InternalClientMessageType:
@@ -33,8 +37,9 @@ class Environment:
     PROD = "PROD"
     DEV = "DEV"
 
+    @staticmethod
     def get_environment():
-        return Environment.DEV
+        return Environment.DEV if config.is_dev_environment() else Environment.PROD
     
 def image_as_encoded(image):
     byte_arr = BytesIO()
@@ -333,10 +338,7 @@ async def send_progress(websocket: websockets.ClientProtocol, message, task_id):
     }}))
 
 async def connect_to_websocket():
-    uri = "wss://orca-app-h5tlv.ondigitalocean.app"
-
-    if Environment.get_environment() == Environment.DEV:
-        uri = "ws://localhost:8000"
+    uri = config.get_websocket_uri()
 
     id = random.randbytes(32).hex()
     while True:
@@ -431,12 +433,13 @@ async def monitor_memory():
             print(f"System Memory Available: {system_memory.available / 1024 / 1024:.2f} MB")
             print(f"System Memory Total: {system_memory.total / 1024 / 1024:.2f} MB")
             print("-" * 60)
+            print_counter = 0  # Reset counter
         
         if used_memory_percent > MEMORY_THRESHOLD_PERCENT:
             print(f"Memory usage is too high ({used_memory_percent}%). Restarting the script.")
             await reset_script()
 
-        await asyncio.sleep(2)  # Check every 5 seconds
+        await asyncio.sleep(CHECK_INTERVAL)  # Check based on config
         print_counter += 1
 
 async def reset_script():
@@ -458,5 +461,9 @@ async def main():
     await connect_to_websocket()  # Example of existing main function
 
 if __name__ == "__main__":
-    Utils.set_debug(False)
+    # Load and apply configuration
+    if config.is_debug_mode():
+        config.print_config_summary()
+    
+    Utils.set_debug(config.is_debug_mode())
     asyncio.run(main())
