@@ -319,12 +319,12 @@ def build_pyinstaller_command(python_lib_path: str, poppler_binaries: List[str],
         cmd.append("--clean")
     
     # Icon/Logo
-    logo_path = Path("assets/corigge_logo.png")
+    logo_path = Path("assets/corigge_logo.ico")
     if logo_path.exists():
         cmd.extend(["--icon", str(logo_path)])
         print(f"📱 Adding logo: {logo_path}")
     else:
-        print("⚠️  Logo not found at assets/corigge_logo.png")
+        print("⚠️  Logo not found at assets/corigge_logo.ico")
     
     # Hidden imports
     cmd.extend(["--hidden-import", "cv2"])
