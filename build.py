@@ -13,6 +13,35 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 
+def find_python_executable() -> str:
+    """Find the appropriate Python executable (python3 or python)."""
+    def test_python_command(cmd: str) -> bool:
+        """Test if a Python command exists and is Python 3.x."""
+        try:
+            result = subprocess.run([cmd, "--version"], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                version_output = result.stdout.strip()
+                # Check if it's Python 3.x
+                if "Python 3." in version_output:
+                    return True
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            pass
+        return False
+    
+    # Try python3 first (preferred)
+    if test_python_command("python3"):
+        return "python3"
+    
+    # Fall back to python
+    if test_python_command("python"):
+        return "python"
+    
+    # If we're running this script, we must have a working Python
+    # Use the same executable that's running this script
+    return sys.executable
+
+
 def load_config(config_file: str = "build_config.env") -> Dict[str, str]:
     """Load configuration from environment file."""
     config = {}
@@ -34,7 +63,7 @@ def get_python_version() -> str:
     return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
-def get_python_lib_info() -> Dict[str, Any]:
+def get_python_lib_info(python_cmd: str) -> Dict[str, Any]:
     """Get Python library information for current platform."""
     system = platform.system().lower()
     python_version = get_python_version()
@@ -42,10 +71,25 @@ def get_python_lib_info() -> Dict[str, Any]:
     info = {
         'system': system,
         'python_version': python_version,
+        'python_cmd': python_cmd,
         'lib_dir': sysconfig.get_config_var('LIBDIR'),
         'lib_name': None,
         'lib_path': None
     }
+    
+    # For cross-system compatibility, also try to get LIBDIR using the found python executable
+    try:
+        result = subprocess.run([
+            python_cmd, "-c", 
+            "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
+        ], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            external_libdir = result.stdout.strip()
+            if external_libdir != "None":
+                info['lib_dir'] = external_libdir
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        pass  # Fall back to sysconfig from current Python
     
     if system == 'darwin':  # macOS
         info['lib_name'] = f"libpython{python_version}.dylib"
@@ -69,14 +113,22 @@ def get_python_lib_info() -> Dict[str, Any]:
         
         # If not found in LIBDIR, check common Windows locations
         if not info['lib_name']:
-            import sys
-            python_dir = Path(sys.executable).parent
-            for name in possible_names:
-                potential_path = python_dir / name
-                if potential_path.exists():
-                    info['lib_name'] = name
-                    info['lib_dir'] = str(python_dir)
-                    break
+            # Try to get the Python executable directory using the found command
+            try:
+                result = subprocess.run([
+                    python_cmd, "-c", "import sys; print(sys.executable)"
+                ], capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0:
+                    python_dir = Path(result.stdout.strip()).parent
+                    for name in possible_names:
+                        potential_path = python_dir / name
+                        if potential_path.exists():
+                            info['lib_name'] = name
+                            info['lib_dir'] = str(python_dir)
+                            break
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                pass
     
     elif system == 'linux':
         info['lib_name'] = f"libpython{python_version}.so"
@@ -88,7 +140,7 @@ def get_python_lib_info() -> Dict[str, Any]:
     return info
 
 
-def get_python_lib_path(config: Dict[str, str]) -> Optional[str]:
+def get_python_lib_path(config: Dict[str, str], python_cmd: str) -> Optional[str]:
     """Get Python library path, checking config overrides first."""
     system = platform.system().lower()
     
@@ -98,10 +150,11 @@ def get_python_lib_path(config: Dict[str, str]) -> Optional[str]:
         return config[override_key]
     
     # Auto-detect
-    lib_info = get_python_lib_info()
+    lib_info = get_python_lib_info(python_cmd)
     
     if not lib_info['lib_path']:
         print(f"❌ Could not find Python library for {system}")
+        print(f"Python command: {python_cmd}")
         print(f"Library directory: {lib_info['lib_dir']}")
         print(f"Expected library name: {lib_info['lib_name']}")
         return None
@@ -145,13 +198,29 @@ def main():
     print("🚀 Starting cross-platform PyInstaller build...")
     print(f"Platform: {platform.system()} {platform.release()}")
     print(f"Python: {sys.version}")
+    
+    # Find appropriate Python executable
+    python_cmd = find_python_executable()
+    print(f"Using Python command: {python_cmd}")
+    
+    # Test the Python command
+    try:
+        result = subprocess.run([python_cmd, "--version"], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            print(f"Python version: {result.stdout.strip()}")
+        else:
+            print(f"⚠️  Warning: Could not verify Python version")
+    except Exception as e:
+        print(f"⚠️  Warning: Error testing Python command: {e}")
+    
     print()
     
     # Load configuration
     config = load_config()
     
     # Get Python library path
-    python_lib_path = get_python_lib_path(config)
+    python_lib_path = get_python_lib_path(config, python_cmd)
     if not python_lib_path:
         print("❌ Build failed: Could not locate Python library")
         sys.exit(1)
