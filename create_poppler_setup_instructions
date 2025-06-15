@@ -1,0 +1,41 @@
+def create_poppler_setup_instructions():
+    """Create instructions for installing poppler on different platforms."""
+    system = platform.system().lower()
+    
+    print("\n📋 Poppler Setup Instructions:")
+    print("\n🎯 Option 1: Local Project Directory (Recommended for portable builds)")
+    
+    if system == 'windows':
+        print("1. Download poppler for Windows from: https://github.com/oschwartz10612/poppler-windows/releases")
+        print("2. Extract the downloaded archive")
+        print("3. Copy the entire poppler folder to your project directory:")
+        print("   YourProject/")
+        print("   ├── poppler/")
+        print("   │   └── bin/")
+        print("   │       ├── pdftoppm.exe")
+        print("   │       ├── pdfinfo.exe")
+        print("   │       └── *.dll files")
+        print("   ├── build.py")
+        print("   └── main_processing_computer.py")
+        print("4. Run: python build.py")
+        print("   The build script will automatically detect and bundle the local poppler!")
+        
+        print("\n🔧 Option 2: System Installation")
+        print("1. Download poppler for Windows from: https://github.com/oschwartz10612/poppler-windows/releases")
+        print("2. Extract to C:\\poppler (or another location)")
+        print("3. Add C:\\poppler\\bin to your PATH environment variable")
+        print("4. Or set WINDOWS_POPPLER_PATH=C:\\poppler\\bin in build_config.env")
+        
+    elif system == 'darwin':
+        print("For macOS, local bundling is supported but Homebrew is usually easier:")
+        print("1. Install via Homebrew: brew install poppler")
+        print("2. Or for local bundling:")
+        print("   - Download poppler source and compile")
+        print("   - Place binaries in YourProject/poppler/bin/")
+        
+    elif system == 'linux':
+        print("For Linux, package managers are recommended:")
+        print("1. Ubuntu/Debian: sudo apt-get install poppler-utils")
+        print("2. CentOS/RHEL: sudo yum install poppler-utils") 
+        print("3. Arch: sudo pacman -S poppler")
+        print("4. Or for local bundling, place binaries in YourProject/poppler/bin/") 

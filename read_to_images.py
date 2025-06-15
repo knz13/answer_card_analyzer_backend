@@ -3,6 +3,8 @@ import io
 import os
 import random
 import tempfile
+import sys
+from pathlib import Path
 from PIL import Image
 import cv2
 from pdf2image import convert_from_bytes
@@ -18,6 +20,23 @@ from fastapi import UploadFile
 from utils import Utils
 
 
+def get_poppler_path():
+    """Get the path to poppler binaries, handling PyInstaller bundled executables."""
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle
+        application_path = Path(sys._MEIPASS)
+        poppler_path = application_path / "poppler"
+        if poppler_path.exists():
+            Utils.log_info(f"Using bundled poppler from: {poppler_path}")
+            return str(poppler_path)
+        else:
+            Utils.log_info("Bundled poppler not found, falling back to system poppler")
+            return None
+    else:
+        # Running in normal Python environment
+        return None
+
+
 async def read_to_images(file: UploadFile, needs_calibration=True, on_progress=None):
     print("Reading data to images...")
 
@@ -29,13 +48,34 @@ async def read_to_images(file: UploadFile, needs_calibration=True, on_progress=N
             await on_progress("Converting PDF to images...")
 
         try:
-            images = convert_from_bytes(bytes_arr, thread_count=4)
+            # Get poppler path for PyInstaller builds
+            poppler_path = get_poppler_path()
+            
+            if poppler_path:
+                # Use bundled poppler
+                images = convert_from_bytes(bytes_arr, thread_count=4, poppler_path=poppler_path)
+            else:
+                # Use system poppler
+                images = convert_from_bytes(bytes_arr, thread_count=4)
 
             if on_progress:
                 await on_progress(f"Converted PDF, {len(images)} pages")
         except Exception as e:
-            print("Error converting PDF to images")
-            print(e)
+            error_msg = f"Error converting PDF to images: {str(e)}"
+            print(error_msg)
+            Utils.log_error(error_msg)
+            
+            # Provide helpful error message for poppler issues
+            if "poppler" in str(e).lower() or "Unable to get page count" in str(e):
+                poppler_error = "PDF conversion failed - poppler not found. "
+                if getattr(sys, 'frozen', False):
+                    poppler_error += "This executable was built without poppler support. Please rebuild with poppler included."
+                else:
+                    poppler_error += "Please install poppler-utils for your system."
+                Utils.log_error(poppler_error)
+                if on_progress:
+                    await on_progress(poppler_error)
+            
             return None
     else:
         images = [Image.open(io.BytesIO(bytes_arr))]
