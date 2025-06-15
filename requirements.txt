@@ -8,4 +8,3 @@ fastapi
 python-multipart
 psutil
 python-dotenv
-pytesseract

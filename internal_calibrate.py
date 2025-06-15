@@ -2,8 +2,6 @@ import cv2 as cv2
 import numpy as np
 from PIL import Image
 from pdf2image import convert_from_path
-import pytesseract
-from pytesseract import Output
 from utils import Utils
 
 
@@ -254,38 +252,6 @@ def detect_contour_angle(img):
     return angle
 
 
-def detect_text_angle(img):
-    # Convert PIL Image to OpenCV format if needed
-    if isinstance(img, Image.Image):
-        img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    try:
-        # Try Tesseract OSD first
-        results = pytesseract.image_to_osd(img, output_type=Output.DICT)
-        angle = results["orientation"]
-        confidence = results["orientation_conf"]
-        
-        # Only use the angle if confidence is high enough
-        if confidence > 2.0:
-            return angle
-            
-    except:
-        # Fallback to image processing method
-        thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-        coords = np.column_stack(np.where(thresh > 0))
-        angle = cv2.minAreaRect(coords)[-1]
-        
-        # Adjust angle
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-            
-    return angle
-
 def normalize_image_brightness(img):
     """
     Normalize image brightness using dynamic range stretching and gamma correction.
@@ -360,7 +326,7 @@ def normalize_image_brightness(img):
         return cv_img
 
 
-def apply_calibration_to_image(img: Image, calibration_rect=None, use_contour_angle=True):
+def apply_calibration_to_image(img: Image, calibration_rect=None):
     # First, normalize brightness and contrast to handle varying lighting
     normalized_img = normalize_image_brightness(img)
     Utils.log_info("Applied brightness and contrast normalization")
@@ -369,12 +335,8 @@ def apply_calibration_to_image(img: Image, calibration_rect=None, use_contour_an
     cv_img = cv2.cvtColor(np.array(normalized_img), cv2.COLOR_RGB2BGR)
     
     # Detect the angle using the normalized image (better for contour detection)
-    if use_contour_angle:
-        angle = detect_contour_angle(cv_img)
-        Utils.log_info(f"Using contour-based angle detection: {angle:.1f}°")
-    else:
-        angle = detect_text_angle(cv_img)
-        Utils.log_info(f"Using text-based angle detection: {angle:.1f}°")
+    angle = detect_contour_angle(cv_img)
+    Utils.log_info(f"Using contour-based angle detection: {angle:.1f}°")
     
     # Get image dimensions
     height, width = cv_img.shape[:2]
@@ -427,7 +389,7 @@ def get_calibration_rect_for_image(img_path, img=None):
     center = (width/2, height/2)
     
     # Get the angle
-    angle = detect_text_angle(img)
+    angle = detect_contour_angle(img)
     
     # Create a rectangle that covers most of the image
     rect_width = width * 0.95  # 95% of image width
