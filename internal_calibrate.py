@@ -175,8 +175,8 @@ def detect_document_corners(img):
 
 def detect_contour_angle(img):
     """
-    Detect the rotation angle using the largest contour in the image.
-    This is often more reliable than text-based detection.
+    Detect the rotation angle using the blackest parts of the image.
+    This focuses on text/content rather than document edges.
     """
     # Convert PIL Image to OpenCV format if needed
     if isinstance(img, Image.Image):
@@ -184,42 +184,64 @@ def detect_contour_angle(img):
     else:
         cv_img = img
     
+    # Show original image
+    show_image(cv_img, "1_original_for_angle_detection")
+    
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+    show_image(gray, "2_grayscale_for_angle")
     
     # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    show_image(blurred, "3_blurred_for_angle")
     
-    # Create binary threshold
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                   cv2.THRESH_BINARY_INV, 11, 10)
+    # Create aggressive threshold to get only the blackest parts (text/content)
+    # Use a lower threshold value to capture only the darkest pixels
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    show_image(thresh, "4_otsu_threshold")
     
-    # Find contours
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Apply morphological operations to connect nearby text
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    show_image(thresh, "5_morphology_closed")
     
-    if not contours:
-        Utils.log_info("No contours found for angle detection, returning 0")
+    # Find all black pixels (text/content pixels)
+    black_pixels = np.column_stack(np.where(thresh > 0))
+    
+    if len(black_pixels) == 0:
+        Utils.log_info("No black pixels found for angle detection, returning 0")
         return 0
     
-    # Find the largest contour (main document)
-    largest_contour = max(contours, key=cv2.contourArea)
+    # Convert to (x, y) format for convex hull
+    black_pixels_xy = np.array([(pt[1], pt[0]) for pt in black_pixels], dtype=np.int32)
     
-    # Get the minimum area rectangle that fits this contour
-    rect = cv2.minAreaRect(largest_contour)
+    # Find the convex hull of all black pixels to get the largest bounding box
+    hull = cv2.convexHull(black_pixels_xy)
+    
+    # Show convex hull on the original image
+    debug_hull_img = cv_img.copy()
+    cv2.drawContours(debug_hull_img, [hull], -1, (255, 0, 0), 3)  # Blue hull
+    show_image(debug_hull_img, "6_convex_hull")
+    
+    # Get the minimum area rectangle that fits the convex hull (largest bounding box)
+    rect = cv2.minAreaRect(hull)
+    
+    # Show the hull points as individual dots
+    debug_points_img = cv_img.copy()
+    for i, pt in enumerate(hull):
+        cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
+        if i < 10:  # Only label first 10 points to avoid clutter
+            cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    show_image(debug_points_img, "7_hull_points")
     
     # Extract the angle from the rectangle
-    # rect returns ((center_x, center_y), (width, height), angle)
     angle = rect[2]
-    
-    # OpenCV's minAreaRect returns angles in a specific way:
-    # - The angle is between -90 and 0 degrees
-    # - We need to adjust it to get the correct rotation
     
     # Get the dimensions of the rectangle
     width, height = rect[1]
     
-    # If width > height, the rectangle is landscape
-    # If height > width, the rectangle is portrait
+    # Adjust angle based on rectangle orientation
     if width > height:
         # Landscape orientation
         if angle < -45:
@@ -238,17 +260,30 @@ def detect_contour_angle(img):
         else:
             angle = angle + 90
     
-    if Utils.is_debug():
-        # Draw the rotated rectangle for visualization
-        box = cv2.boxPoints(rect)
-        box = np.int32(box)
-        debug_img = cv_img.copy()
-        cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
-        cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        #show_image(debug_img, "contour_angle_detection")
+    # Draw the convex hull and bounding rectangle for visualization
+    debug_img = cv_img.copy()
     
-    Utils.log_info(f"Detected contour angle: {angle:.1f}°")
+    # Draw convex hull in blue
+    cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
+    
+    # Draw the minimum area rectangle in green
+    box = cv2.boxPoints(rect)
+    box = np.int32(box)
+    cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
+    
+    # Add text info
+    cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+    cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    
+    show_image(debug_img, "8_final_angle_detection")
+    
+    Utils.log_info(f"Detected angle from largest bounding box: {angle:.1f}°")
+    Utils.log_info(f"Convex hull has {len(hull)} points")
+    Utils.log_info(f"Bounding rectangle: {width:.1f} x {height:.1f}")
     return angle
 
 
@@ -334,9 +369,9 @@ def apply_calibration_to_image(img: Image, calibration_rect=None):
     # Convert PIL Image to OpenCV format
     cv_img = cv2.cvtColor(np.array(normalized_img), cv2.COLOR_RGB2BGR)
     
-    # Detect the angle using the normalized image (better for contour detection)
+    # Detect the angle using the blackest parts of the image (text/content)
     angle = detect_contour_angle(cv_img)
-    Utils.log_info(f"Using contour-based angle detection: {angle:.1f}°")
+    Utils.log_info(f"Using blackest parts angle detection: {angle:.1f}°")
     
     # Get image dimensions
     height, width = cv_img.shape[:2]
