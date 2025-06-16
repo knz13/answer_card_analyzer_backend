@@ -5,7 +5,7 @@ from pdf2image import convert_from_path
 from utils import Utils
 
 
-def auto_crop_document(img, padding_percent=0.0001):
+def auto_crop_document(img, padding_percent=0.00001):
     """
     Automatically crop a scanned document to remove empty white spaces.
     
@@ -270,10 +270,10 @@ def detect_contour_angle(img):
     x_min, x_max = np.min(x_coords), np.max(x_coords)
     y_min, y_max = np.min(y_coords), np.max(y_coords)
     
-    # Add some padding (2% of image dimensions)
+    # Add some padding (0.2% of image dimensions)
     img_height, img_width = cv_img.shape[:2]
-    padding_x = int(img_width * 0.02)
-    padding_y = int(img_height * 0.02)
+    padding_x = int(img_width * 0.002)
+    padding_y = int(img_height * 0.002)
     
     # Apply padding but keep within image bounds
     crop_rect = {

@@ -330,7 +330,7 @@ def evaluate_circles_quality(circles, expected_count=None, min_radius=None, max_
     return total_score
 
 async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, max_radius, 
-                                 expected_count=None, circle_precision_percentage=1, on_progress=None, rectangle_info=None):
+                                 expected_count=None, circle_precision_percentage=1, on_progress=None, rectangle_info=None, crop_img=None):
     """
     Iteratively test different Hough circle parameters to find the best result.
     """
@@ -465,26 +465,35 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
         Utils.log_info(f"🔍 Filtering circles by image bounds...")
         bounds_filtered_circles = filter_circles_by_bounds(enhanced_circles, gray_img.shape,max_outside_ratio=0.4)
         
-        # Remove grid outliers after bounds filtering
+        """ # Remove grid outliers after bounds filtering
         Utils.log_info(f"🧹 Removing grid outliers...")
-        grid_filtered_circles = remove_grid_outliers(bounds_filtered_circles)
+        grid_filtered_circles = remove_grid_outliers(bounds_filtered_circles) """
         
-        # Remove circles positioned between grid lines
+        """ # Remove circles positioned between grid lines
         Utils.log_info(f"🎯 Removing between-grid circles...")
-        grid_aligned_circles = remove_between_grid_circles(grid_filtered_circles)
+        grid_aligned_circles = remove_between_grid_circles(bounds_filtered_circles) """
+        
+        # Remove circles with too much white content (if crop_img is available)
+        white_filtered_circles = bounds_filtered_circles
+        if crop_img is not None:
+            Utils.log_info(f"🔍 Removing circles with excessive white content...")
+            white_filtered_circles = remove_white_content_circles(bounds_filtered_circles, crop_img)
         
         # Remove overlapping circles after all other filtering
         Utils.log_info(f"🔄 Removing overlapping circles...")
-        filtered_circles = remove_overlapping_circles(grid_aligned_circles)
+        filtered_circles = remove_overlapping_circles(white_filtered_circles)
         
         best_circles = np.array([filtered_circles], dtype=np.float32)
+        white_filter_text = f"white content filtering reduced to {len(white_filtered_circles)} circles, " if crop_img is not None else ""
         Utils.log_info(f"✨ Analysis complete: Consensus recovery enhanced to {len(enhanced_circles)} circles, "
                       f"bounds filtering reduced to {len(bounds_filtered_circles)} circles, "
-                      f"grid outlier removal filtered to {len(grid_filtered_circles)} circles, "
-                      f"between-grid removal filtered to {len(grid_aligned_circles)} circles, "
+                      #f"grid outlier removal filtered to {len(grid_filtered_circles)} circles, "
+                      #f"between-grid removal filtered to {len(grid_aligned_circles)} circles, "
+                      f"{white_filter_text}"
                       f"overlap removal final result: {len(filtered_circles)} circles")
+        progress_text = f"(bounds + outliers + between-grid + {'white-content + ' if crop_img is not None else ''}overlaps filtered)"
         if on_progress is not None:
-            await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(filtered_circles)} circles detected\n(bounds + outliers + between-grid + overlaps filtered)")
+            await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(filtered_circles)} circles detected\n{progress_text}")
     else:
         if on_progress is not None:
             await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(best_circles[0]) if best_circles is not None else 0} circles detected")
@@ -972,6 +981,97 @@ def remove_between_grid_circles(circles, grid_tolerance_factor=0.8):
     
     return aligned_circles
 
+def remove_white_content_circles(circles, crop_img, max_white_percentage=0.92, white_threshold=200):
+    """
+    Remove circles that have too much white/light content inside them.
+    This helps filter out false positive circles detected in areas that are mostly white.
+    
+    Args:
+        circles: List of circles [x, y, radius]
+        crop_img: The cropped image where circles were detected
+        max_white_percentage: Maximum percentage of white content allowed (0.7 = 70%)
+        white_threshold: Pixel intensity threshold to consider as "white" (200 for grayscale 0-255)
+    
+    Returns:
+        Filtered list of circles with acceptable white content
+    """
+    if not circles or crop_img is None:
+        return circles
+    
+    # Convert to list of lists if needed (handle numpy arrays)
+    circles_list = []
+    for circle in circles:
+        if hasattr(circle, '__len__') and len(circle) >= 3:
+            circles_list.append([float(circle[0]), float(circle[1]), float(circle[2])])
+        else:
+            circles_list.append(circle)
+    circles = circles_list
+    
+    # Convert image to grayscale if it's not already
+    if len(crop_img.shape) == 3:
+        gray_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_img = crop_img.copy()
+    
+    img_height, img_width = gray_img.shape
+    filtered_circles = []
+    
+    Utils.log_info(f"White content filtering: Starting with {len(circles)} circles, "
+                  f"max_white_percentage: {max_white_percentage*100:.0f}%, white_threshold: {white_threshold}")
+    
+    for circle in circles:
+        x, y, radius = int(circle[0]), int(circle[1]), int(circle[2])
+        
+        # Calculate bounding box for the circle
+        y_min = max(y - radius, 0)
+        x_min = max(x - radius, 0)
+        y_max = min(y + radius, img_height)
+        x_max = min(x + radius, img_width)
+        
+        # Extract the square region around the circle
+        circle_region = gray_img[y_min:y_max, x_min:x_max]
+        
+        if circle_region.size == 0:
+            Utils.log_info(f"REMOVING circle at ({circle[0]:.1f}, {circle[1]:.1f}) - empty region")
+            continue
+        
+        # Create a mask for the circular area
+        region_height, region_width = circle_region.shape
+        center_x_local = x - x_min
+        center_y_local = y - y_min
+        
+        # Create circular mask
+        y_indices, x_indices = np.ogrid[:region_height, :region_width]
+        mask = (x_indices - center_x_local)**2 + (y_indices - center_y_local)**2 <= radius**2
+        
+        # Extract only the pixels inside the circle
+        circle_pixels = circle_region[mask]
+        
+        if len(circle_pixels) == 0:
+            Utils.log_info(f"REMOVING circle at ({circle[0]:.1f}, {circle[1]:.1f}) - no pixels in mask")
+            continue
+        
+        # Calculate the percentage of white pixels
+        white_pixels = np.sum(circle_pixels >= white_threshold)
+        total_pixels = len(circle_pixels)
+        white_percentage = white_pixels / total_pixels
+        
+        # Keep circle if white percentage is below threshold
+        if white_percentage <= max_white_percentage:
+            filtered_circles.append(circle)
+            if Utils.is_debug():
+                Utils.log_info(f"KEEPING circle at ({circle[0]:.1f}, {circle[1]:.1f}) - "
+                              f"{white_percentage*100:.1f}% white (threshold: {max_white_percentage*100:.0f}%)")
+        else:
+            Utils.log_info(f"REMOVING circle at ({circle[0]:.1f}, {circle[1]:.1f}) - "
+                          f"{white_percentage*100:.1f}% white content (threshold: {max_white_percentage*100:.0f}%) "
+                          f"[{white_pixels}/{total_pixels} white pixels]")
+    
+    Utils.log_info(f"White content filtering complete: {len(circles)} → {len(filtered_circles)} circles "
+                  f"({len(circles) - len(filtered_circles)} circles removed for excessive white content)")
+    
+    return filtered_circles
+
 async def find_circles_cv2(image_path, rectangle, rectangle_type, param2, dp, darkness_threshold=180/255, img=None, on_progress=None, circle_size=None, circle_precision_percentage=1, rectangle_info=None):
     # Load the image
     Utils.log_info(f"Got circle size: {circle_size}")
@@ -1061,7 +1161,8 @@ async def find_circles_cv2(image_path, rectangle, rectangle_type, param2, dp, da
         expected_count=expected_count,
         circle_precision_percentage=circle_precision_percentage,
         on_progress=on_progress,
-        rectangle_info=rectangle_info
+        rectangle_info=rectangle_info,
+        crop_img=crop_img
     )
     
     Utils.log_info(f"Iterative Hough circles result - Score: {best_score:.3f}, Circles found: {len(circles[0]) if circles is not None else 0}")
