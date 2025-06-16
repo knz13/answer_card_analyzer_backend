@@ -185,25 +185,30 @@ def detect_contour_angle(img):
         cv_img = img
     
     # Show original image
-    show_image(cv_img, "1_original_for_angle_detection")
+    if Utils.is_debug():
+        show_image(cv_img, "1_original_for_angle_detection")
     
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-    show_image(gray, "2_grayscale_for_angle")
+    if Utils.is_debug():
+        show_image(gray, "2_grayscale_for_angle")
     
     # Apply Gaussian blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    show_image(blurred, "3_blurred_for_angle")
+    if Utils.is_debug():
+        show_image(blurred, "3_blurred_for_angle")
     
     # Create aggressive threshold to get only the blackest parts (text/content)
     # Use a lower threshold value to capture only the darkest pixels
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    show_image(thresh, "4_otsu_threshold")
+    if Utils.is_debug():
+        show_image(thresh, "4_otsu_threshold")
     
     # Apply morphological operations to connect nearby text
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    show_image(thresh, "5_morphology_closed")
+    if Utils.is_debug():
+        show_image(thresh, "5_morphology_closed")
     
     # Find all black pixels (text/content pixels)
     black_pixels = np.column_stack(np.where(thresh > 0))
@@ -219,21 +224,23 @@ def detect_contour_angle(img):
     hull = cv2.convexHull(black_pixels_xy)
     
     # Show convex hull on the original image
-    debug_hull_img = cv_img.copy()
-    cv2.drawContours(debug_hull_img, [hull], -1, (255, 0, 0), 3)  # Blue hull
-    show_image(debug_hull_img, "6_convex_hull")
+    if Utils.is_debug():
+        debug_hull_img = cv_img.copy()
+        cv2.drawContours(debug_hull_img, [hull], -1, (255, 0, 0), 3)  # Blue hull
+        show_image(debug_hull_img, "6_convex_hull")
     
     # Get the minimum area rectangle that fits the convex hull (largest bounding box)
     rect = cv2.minAreaRect(hull)
     
     # Show the hull points as individual dots
-    debug_points_img = cv_img.copy()
-    for i, pt in enumerate(hull):
-        cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
-        if i < 10:  # Only label first 10 points to avoid clutter
-            cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    show_image(debug_points_img, "7_hull_points")
+    if Utils.is_debug():
+        debug_points_img = cv_img.copy()
+        for i, pt in enumerate(hull):
+            cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
+            if i < 10:  # Only label first 10 points to avoid clutter
+                cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        show_image(debug_points_img, "7_hull_points")
     
     # Extract the angle from the rectangle
     angle = rect[2]
@@ -261,25 +268,26 @@ def detect_contour_angle(img):
             angle = angle + 90
     
     # Draw the convex hull and bounding rectangle for visualization
-    debug_img = cv_img.copy()
-    
-    # Draw convex hull in blue
-    cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
-    
-    # Draw the minimum area rectangle in green
-    box = cv2.boxPoints(rect)
-    box = np.int32(box)
-    cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
-    
-    # Add text info
-    cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-    cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    
-    show_image(debug_img, "8_final_angle_detection")
+    if Utils.is_debug():
+        debug_img = cv_img.copy()
+        
+        # Draw convex hull in blue
+        cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
+        
+        # Draw the minimum area rectangle in green
+        box = cv2.boxPoints(rect)
+        box = np.int32(box)
+        cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
+        
+        # Add text info
+        cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+        show_image(debug_img, "8_final_angle_detection")
     
     Utils.log_info(f"Detected angle from largest bounding box: {angle:.1f}°")
     Utils.log_info(f"Convex hull has {len(hull)} points")
