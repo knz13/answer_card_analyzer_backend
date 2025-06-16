@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-platform PyInstaller build script for main_processing_computer.py
+Cross-platform Nuitka build script for main_processing_computer.py
 Supports Windows, macOS, and Linux with automatic Python library detection and poppler bundling.
 """
 
@@ -145,10 +145,11 @@ def find_poppler_path(config: Dict[str, str]) -> Optional[str]:
     return None
 
 
-def get_poppler_binaries(poppler_path: str) -> List[str]:
-    """Get list of poppler binary files to include."""
+def get_poppler_data_files(poppler_path: str) -> List[tuple]:
+    """Get list of poppler files to include as data files for Nuitka."""
     system = platform.system().lower()
     poppler_dir = Path(poppler_path)
+    data_files = []
     
     if system == 'windows':
         # Windows poppler executables
@@ -158,29 +159,29 @@ def get_poppler_binaries(poppler_path: str) -> List[str]:
             "pdfinfo.exe",
             "pdfimages.exe",
         ]
-        # Also include any DLL dependencies
-        dll_files = list(poppler_dir.glob("*.dll"))
-        return [str(poppler_dir / binary) for binary in binaries if (poppler_dir / binary).exists()] + [str(dll) for dll in dll_files]
+        # Include executables
+        for binary in binaries:
+            binary_path = poppler_dir / binary
+            if binary_path.exists():
+                data_files.append((str(binary_path), "poppler"))
+        
+        # Include any DLL dependencies
+        for dll_file in poppler_dir.glob("*.dll"):
+            data_files.append((str(dll_file), "poppler"))
     
-    elif system == 'darwin':  # macOS
+    elif system in ['darwin', 'linux']:
         binaries = [
             "pdftoppm",
             "pdftocairo",
             "pdfinfo", 
             "pdfimages",
         ]
-        return [str(poppler_dir / binary) for binary in binaries if (poppler_dir / binary).exists()]
+        for binary in binaries:
+            binary_path = poppler_dir / binary
+            if binary_path.exists():
+                data_files.append((str(binary_path), "poppler"))
     
-    elif system == 'linux':
-        binaries = [
-            "pdftoppm",
-            "pdftocairo",
-            "pdfinfo",
-            "pdfimages",
-        ]
-        return [str(poppler_dir / binary) for binary in binaries if (poppler_dir / binary).exists()]
-    
-    return []
+    return data_files
 
 
 def load_config(config_file: str = "build_config.env") -> Dict[str, str]:
@@ -199,146 +200,67 @@ def load_config(config_file: str = "build_config.env") -> Dict[str, str]:
     return config
 
 
-def get_python_version() -> str:
-    """Get Python version in format like '3.13'."""
-    return f"{sys.version_info.major}.{sys.version_info.minor}"
-
-
-def get_python_lib_info(python_cmd: str) -> Dict[str, Any]:
-    """Get Python library information for current platform."""
-    system = platform.system().lower()
-    python_version = get_python_version()
-    
-    info = {
-        'system': system,
-        'python_version': python_version,
-        'python_cmd': python_cmd,
-        'lib_dir': sysconfig.get_config_var('LIBDIR'),
-        'lib_name': None,
-        'lib_path': None
-    }
-    
-    # For cross-system compatibility, also try to get LIBDIR using the found python executable
-    try:
-        result = subprocess.run([
-            python_cmd, "-c", 
-            "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))"
-        ], capture_output=True, text=True, timeout=10)
-        
-        if result.returncode == 0 and result.stdout.strip():
-            external_libdir = result.stdout.strip()
-            if external_libdir != "None":
-                info['lib_dir'] = external_libdir
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-        pass  # Fall back to sysconfig from current Python
-    
-    if system == 'darwin':  # macOS
-        info['lib_name'] = f"libpython{python_version}.dylib"
-    elif system == 'windows':
-        # Windows can have different naming conventions
-        version_nodot = python_version.replace('.', '')
-        possible_names = [
-            f"python{version_nodot}.dll",
-            f"python{python_version}.dll",
-            f"libpython{python_version}.dll"
-        ]
-        
-        # Try to find the actual DLL
-        lib_dir = info['lib_dir']
-        if lib_dir:
-            for name in possible_names:
-                potential_path = Path(lib_dir) / name
-                if potential_path.exists():
-                    info['lib_name'] = name
-                    break
-        
-        # If not found in LIBDIR, check common Windows locations
-        if not info['lib_name']:
-            # Try to get the Python executable directory using the found command
-            try:
-                result = subprocess.run([
-                    python_cmd, "-c", "import sys; print(sys.executable)"
-                ], capture_output=True, text=True, timeout=10)
-                
-                if result.returncode == 0:
-                    python_dir = Path(result.stdout.strip()).parent
-                    for name in possible_names:
-                        potential_path = python_dir / name
-                        if potential_path.exists():
-                            info['lib_name'] = name
-                            info['lib_dir'] = str(python_dir)
-                            break
-            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-                pass
-    
-    elif system == 'linux':
-        info['lib_name'] = f"libpython{python_version}.so"
-    
-    # Construct full library path
-    if info['lib_dir'] and info['lib_name']:
-        info['lib_path'] = str(Path(info['lib_dir']) / info['lib_name'])
-    
-    return info
-
-
-def get_python_lib_path(config: Dict[str, str], python_cmd: str) -> Optional[str]:
-    """Get Python library path, checking config overrides first."""
-    system = platform.system().lower()
-    
-    # Check for override in config
-    override_key = f"{system.upper()}_PYTHON_LIB_PATH"
-    if override_key in config and config[override_key]:
-        return config[override_key]
-    
-    # Auto-detect
-    lib_info = get_python_lib_info(python_cmd)
-    
-    if not lib_info['lib_path']:
-        print(f"❌ Could not find Python library for {system}")
-        print(f"Python command: {python_cmd}")
-        print(f"Library directory: {lib_info['lib_dir']}")
-        print(f"Expected library name: {lib_info['lib_name']}")
-        return None
-    
-    if not Path(lib_info['lib_path']).exists():
-        print(f"❌ Python library not found at: {lib_info['lib_path']}")
-        return None
-    
-    return lib_info['lib_path']
-
-
-def build_pyinstaller_command(python_lib_path: str, poppler_binaries: List[str], config: Dict[str, str]) -> list:
-    """Build PyInstaller command with appropriate arguments."""
-    cmd = ["pyinstaller"]
+def build_nuitka_command(poppler_data_files: List[tuple], config: Dict[str, str]) -> list:
+    """Build Nuitka command with appropriate arguments."""
+    cmd = ["python", "-m", "nuitka"]
     
     # Basic options
     if config.get('ONE_FILE', 'true').lower() == 'true':
         cmd.append("--onefile")
     
+    # Output directory
+    cmd.append("--output-dir=dist")
+    
+    # Remove output for clean build
     if config.get('CLEAN_BUILD', 'true').lower() == 'true':
-        cmd.append("--clean")
+        cmd.append("--remove-output")
     
     # Icon/Logo
     logo_path = Path("assets/corigge_logo.ico")
     if logo_path.exists():
-        cmd.extend(["--icon", str(logo_path)])
+        cmd.append(f"--windows-icon-from-ico={logo_path}")
         print(f"📱 Adding logo: {logo_path}")
     else:
         print("⚠️  Logo not found at assets/corigge_logo.ico")
     
-    # Hidden imports
-    cmd.extend(["--hidden-import", "cv2"])
+    # Enable valid plugins
+    cmd.extend([
+        "--enable-plugin=anti-bloat",     # Removes unused modules
+        "--enable-plugin=data-files",     # Better data file handling
+    ])
     
-    # Add Python library binary
-    cmd.extend(["--add-binary", f"{python_lib_path}:."])
+    # Include packages explicitly (more reliable than plugins for some packages)
+    cmd.append("--include-package=cv2")
+    cmd.append("--include-package=numpy")
+    cmd.append("--include-package=PIL")
+    cmd.append("--include-package=websockets")
+    cmd.append("--include-package=asyncio")
+    cmd.append("--include-package=json")
+    cmd.append("--include-package=base64")
+    cmd.append("--include-package=io")
+    cmd.append("--include-package=queue")
+    cmd.append("--include-package=traceback")
+    cmd.append("--include-package=psutil")
+    cmd.append("--include-package=pdf2image")
+    cmd.append("--include-package=pathlib")
     
-    # Add poppler binaries
-    for binary in poppler_binaries:
-        cmd.extend(["--add-binary", f"{binary}:poppler"])
+    # Add poppler data files
+    for src_path, dest_dir in poppler_data_files:
+        cmd.append(f"--include-data-file={src_path}={dest_dir}/{Path(src_path).name}")
     
-    # Log level
-    log_level = config.get('LOG_LEVEL', 'INFO')
-    cmd.extend(["--log-level", log_level])
+    # Performance optimizations
+    if config.get('OPTIMIZE', 'true').lower() == 'true':
+        cmd.append("--lto=yes")  # Link-time optimization
+    
+    # Show progress
+    if config.get('SHOW_PROGRESS', 'true').lower() == 'true':
+        cmd.append("--show-progress")
+    
+    # Warning control
+    cmd.append("--assume-yes-for-downloads")
+    
+    # Follow imports for better compatibility
+    cmd.append("--follow-imports")
     
     # Target script
     cmd.append("main_processing_computer.py")
@@ -389,11 +311,36 @@ def create_poppler_setup_instructions():
         print("4. Or for local bundling, place binaries in YourProject/poppler/bin/")
 
 
+def check_nuitka_installation():
+    """Check if Nuitka is installed and install if needed."""
+    try:
+        result = subprocess.run(["python", "-m", "nuitka", "--version"], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            print(f"✅ Nuitka found: {result.stdout.strip()}")
+            return True
+    except:
+        pass
+    
+    print("❌ Nuitka not found. Installing...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "nuitka"], check=True)
+        print("✅ Nuitka installed successfully!")
+        return True
+    except subprocess.CalledProcessError:
+        print("❌ Failed to install Nuitka. Please install manually: pip install nuitka")
+        return False
+
+
 def main():
     """Main build function."""
-    print("🚀 Starting cross-platform PyInstaller build with poppler support...")
+    print("🚀 Starting cross-platform Nuitka build with poppler support...")
     print(f"Platform: {platform.system()} {platform.release()}")
     print(f"Python: {sys.version}")
+    
+    # Check Nuitka installation
+    if not check_nuitka_installation():
+        sys.exit(1)
     
     # Find appropriate Python executable
     python_cmd = find_python_executable()
@@ -415,23 +362,15 @@ def main():
     # Load configuration
     config = load_config()
     
-    # Get Python library path
-    python_lib_path = get_python_lib_path(config, python_cmd)
-    if not python_lib_path:
-        print("❌ Build failed: Could not locate Python library")
-        sys.exit(1)
-    
-    print(f"✅ Found Python library: {python_lib_path}")
-    
     # Find poppler binaries
     poppler_path = find_poppler_path(config)
-    poppler_binaries = []
+    poppler_data_files = []
     
     if poppler_path:
-        poppler_binaries = get_poppler_binaries(poppler_path)
-        if poppler_binaries:
+        poppler_data_files = get_poppler_data_files(poppler_path)
+        if poppler_data_files:
             print(f"✅ Found poppler at: {poppler_path}")
-            print(f"   Including {len(poppler_binaries)} poppler binaries")
+            print(f"   Including {len(poppler_data_files)} poppler files")
         else:
             print(f"⚠️  Poppler path found but no binaries detected: {poppler_path}")
     else:
@@ -444,16 +383,17 @@ def main():
             print("❌ Build cancelled")
             sys.exit(1)
     
-    # Build PyInstaller command
-    cmd = build_pyinstaller_command(python_lib_path, poppler_binaries, config)
+    # Build Nuitka command
+    cmd = build_nuitka_command(poppler_data_files, config)
     
-    print("\n🔧 PyInstaller command:")
+    print("\n🔧 Nuitka command:")
     print(" ".join(f'"{arg}"' if ' ' in arg else arg for arg in cmd))
     print()
     
     # Execute build
     try:
-        print("🏗️  Building executable...")
+        print("🏗️  Building executable with Nuitka...")
+        print("   Note: Nuitka compilation may take several minutes...")
         result = subprocess.run(cmd, check=True, capture_output=False)
         print("\n✅ Build completed successfully!")
         
@@ -464,14 +404,20 @@ def main():
             if executables:
                 print(f"\n📦 Built executable(s):")
                 for exe in executables:
-                    size_mb = exe.stat().st_size / (1024 * 1024)
-                    print(f"   {exe.name} ({size_mb:.1f} MB)")
+                    if exe.is_file() and exe.suffix in ['.exe', ''] and not exe.suffix == '.build':
+                        size_mb = exe.stat().st_size / (1024 * 1024)
+                        print(f"   {exe.name} ({size_mb:.1f} MB)")
         
         # Show poppler status
-        if poppler_binaries:
-            print(f"\n🔧 Poppler integration: ✅ Included {len(poppler_binaries)} binaries")
+        if poppler_data_files:
+            print(f"\n🔧 Poppler integration: ✅ Included {len(poppler_data_files)} files")
         else:
             print(f"\n🔧 Poppler integration: ❌ Not included")
+        
+        print(f"\n🎉 Nuitka build benefits:")
+        print(f"   • Faster startup and execution")
+        print(f"   • Better memory usage")
+        print(f"   • Native executable (not Python bytecode)")
         
     except subprocess.CalledProcessError as e:
         print(f"\n❌ Build failed with exit code {e.returncode}")
