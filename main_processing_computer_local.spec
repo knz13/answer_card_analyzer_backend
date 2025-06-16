@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['main_processing_computer.py'],
+    ['main_processing_computer_local.py'],
     pathex=[],
     binaries=[('/opt/homebrew/opt/python@3.13/Frameworks/Python.framework/Versions/3.13/lib/libpython3.13.dylib', '.'), ('/opt/homebrew/opt/poppler/bin/pdftoppm', 'poppler'), ('/opt/homebrew/opt/poppler/bin/pdftocairo', 'poppler'), ('/opt/homebrew/opt/poppler/bin/pdfinfo', 'poppler'), ('/opt/homebrew/opt/poppler/bin/pdfimages', 'poppler')],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='main_processing_computer',
+    name='main_processing_computer_local',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -469,17 +469,22 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
         Utils.log_info(f"🧹 Removing grid outliers...")
         grid_filtered_circles = remove_grid_outliers(bounds_filtered_circles)
         
-        # Remove overlapping circles after grid outlier removal
+        # Remove circles positioned between grid lines
+        Utils.log_info(f"🎯 Removing between-grid circles...")
+        grid_aligned_circles = remove_between_grid_circles(grid_filtered_circles)
+        
+        # Remove overlapping circles after all other filtering
         Utils.log_info(f"🔄 Removing overlapping circles...")
-        filtered_circles = remove_overlapping_circles(grid_filtered_circles)
+        filtered_circles = remove_overlapping_circles(grid_aligned_circles)
         
         best_circles = np.array([filtered_circles], dtype=np.float32)
         Utils.log_info(f"✨ Analysis complete: Consensus recovery enhanced to {len(enhanced_circles)} circles, "
                       f"bounds filtering reduced to {len(bounds_filtered_circles)} circles, "
                       f"grid outlier removal filtered to {len(grid_filtered_circles)} circles, "
+                      f"between-grid removal filtered to {len(grid_aligned_circles)} circles, "
                       f"overlap removal final result: {len(filtered_circles)} circles")
         if on_progress is not None:
-            await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(filtered_circles)} circles detected\n(bounds + outliers + overlaps filtered)")
+            await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(filtered_circles)} circles detected\n(bounds + outliers + between-grid + overlaps filtered)")
     else:
         if on_progress is not None:
             await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(best_circles[0]) if best_circles is not None else 0} circles detected")
@@ -872,6 +877,100 @@ def remove_overlapping_circles(circles, overlap_threshold=0.5):
                   f"({len(circles) - len(filtered_circles)} overlapping circles removed)")
     
     return filtered_circles
+
+def remove_between_grid_circles(circles, grid_tolerance_factor=0.8):
+    """
+    Remove circles that are positioned between grid lines rather than on the main grid structure.
+    
+    Args:
+        circles: List of circles [x, y, radius]
+        grid_tolerance_factor: Factor to determine grid line tolerance (0.3 = 30% of average radius)
+    
+    Returns:
+        Filtered list of circles that are properly aligned with the main grid
+    """
+    if len(circles) < 4:  # Need at least 4 circles to determine a grid
+        return circles
+    
+    # Convert to list of lists if needed (handle numpy arrays)
+    circles_list = []
+    for circle in circles:
+        if hasattr(circle, '__len__') and len(circle) >= 3:
+            circles_list.append([float(circle[0]), float(circle[1]), float(circle[2])])
+        else:
+            circles_list.append(circle)
+    circles = circles_list
+    
+    # Calculate average radius for tolerance
+    avg_radius = np.mean([c[2] for c in circles])
+    grid_tolerance = avg_radius * grid_tolerance_factor
+    
+    Utils.log_info(f"Between-grid removal: Starting with {len(circles)} circles, grid tolerance: {grid_tolerance:.1f}px")
+    
+    # Extract all X and Y coordinates
+    x_coords = [c[0] for c in circles]
+    y_coords = [c[1] for c in circles]
+    
+    # Find main grid lines using clustering approach
+    def find_main_grid_lines(coords, tolerance):
+        """Find the main grid lines by clustering coordinates."""
+        if not coords:
+            return []
+        
+        sorted_coords = sorted(coords)
+        grid_lines = []
+        current_line = [sorted_coords[0]]
+        
+        for coord in sorted_coords[1:]:
+            if coord - current_line[-1] <= tolerance:
+                current_line.append(coord)
+            else:
+                # Finalize current line and start new one
+                if len(current_line) >= 2:  # Only consider lines with at least 2 circles
+                    grid_lines.append(np.mean(current_line))
+                current_line = [coord]
+        
+        # Don't forget the last line
+        if len(current_line) >= 2:
+            grid_lines.append(np.mean(current_line))
+        
+        return grid_lines
+    
+    # Find main horizontal and vertical grid lines
+    horizontal_grid_lines = find_main_grid_lines(y_coords, grid_tolerance)
+    vertical_grid_lines = find_main_grid_lines(x_coords, grid_tolerance)
+    
+    Utils.log_info(f"Detected {len(horizontal_grid_lines)} horizontal and {len(vertical_grid_lines)} vertical grid lines")
+    
+    if Utils.is_debug():
+        Utils.log_info(f"Horizontal grid lines (Y): {[f'{y:.1f}' for y in horizontal_grid_lines]}")
+        Utils.log_info(f"Vertical grid lines (X): {[f'{x:.1f}' for x in vertical_grid_lines]}")
+    
+    # Filter circles that are properly aligned with grid lines
+    aligned_circles = []
+    
+    for circle in circles:
+        x, y = circle[0], circle[1]
+        
+        # Check if circle is aligned with any horizontal grid line
+        aligned_horizontally = any(abs(y - grid_y) <= grid_tolerance for grid_y in horizontal_grid_lines)
+        
+        # Check if circle is aligned with any vertical grid line
+        aligned_vertically = any(abs(x - grid_x) <= grid_tolerance for grid_x in vertical_grid_lines)
+        
+        # Keep circle only if it's aligned both horizontally and vertically
+        if aligned_horizontally and aligned_vertically:
+            aligned_circles.append(circle)
+            if Utils.is_debug():
+                Utils.log_info(f"KEEPING circle at ({x:.1f}, {y:.1f}) - aligned with grid")
+        else:
+            Utils.log_info(f"REMOVING between-grid circle at ({x:.1f}, {y:.1f}) - "
+                          f"horizontal_aligned: {aligned_horizontally}, vertical_aligned: {aligned_vertically}")
+    
+    Utils.log_info(f"Between-grid removal complete: {len(circles)} → {len(aligned_circles)} circles "
+                  f"({len(circles) - len(aligned_circles)} between-grid circles removed)")
+    
+    return aligned_circles
 
 async def find_circles_cv2(image_path, rectangle, rectangle_type, param2, dp, darkness_threshold=180/255, img=None, on_progress=None, circle_size=None, circle_precision_percentage=1, rectangle_info=None):
     # Load the image

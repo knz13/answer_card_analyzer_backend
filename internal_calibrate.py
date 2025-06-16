@@ -5,7 +5,7 @@ from pdf2image import convert_from_path
 from utils import Utils
 
 
-def auto_crop_document(img, padding_percent=0.005):
+def auto_crop_document(img, padding_percent=0.0001):
     """
     Automatically crop a scanned document to remove empty white spaces.
     
@@ -25,18 +25,21 @@ def auto_crop_document(img, padding_percent=0.005):
         original_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     
     # Show original image
-    ##show_image(cv_img, "1_original_image")
+    # if Utils.is_debug():
+    #     show_image(cv_img, "crop_1_original_image")
     
     # Get original dimensions
     height, width = cv_img.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-    ##show_image(gray, "2_grayscale")
+    # if Utils.is_debug():
+    #     show_image(gray, "crop_2_grayscale")
     
     # Apply Gaussian blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    ##show_image(blurred, "3_blurred")
+    # if Utils.is_debug():
+    #     show_image(blurred, "crop_3_blurred")
     
     # Create binary threshold - anything not white becomes black
     # Use adaptive threshold to handle varying lighting conditions
@@ -44,9 +47,10 @@ def auto_crop_document(img, padding_percent=0.005):
                                    cv2.THRESH_BINARY_INV, 11, 10)
     
     # Alternative: Simple threshold for high-contrast scans
-    # _, thresh = cv2.threshold(blurred, 240, 255, cv2.THRESH_BINARY_INV)
+    #_, thresh = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY_INV)
     
-    ##show_image(thresh, "4_threshold")
+    # if Utils.is_debug():
+    #     show_image(thresh, "crop_4_threshold")
     
     # Find contours
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -58,7 +62,8 @@ def auto_crop_document(img, padding_percent=0.005):
     # Show contours
     contour_img = cv_img.copy()
     cv2.drawContours(contour_img, contours, -1, (0, 255, 0), 2)
-    ##show_image(contour_img, "5_all_contours")
+    # if Utils.is_debug():
+    #     show_image(contour_img, "crop_5_all_contours")
     
     # Method 1: Find the largest contour (main document)
     largest_contour = max(contours, key=cv2.contourArea)
@@ -66,7 +71,8 @@ def auto_crop_document(img, padding_percent=0.005):
     # Show largest contour
     largest_contour_img = cv_img.copy()
     cv2.drawContours(largest_contour_img, [largest_contour], -1, (0, 0, 255), 3)
-    ##show_image(largest_contour_img, "6_largest_contour")
+    # if Utils.is_debug():
+    #     show_image(largest_contour_img, "crop_6_largest_contour")
     
     # Get bounding rectangle of the largest contour
     x, y, w, h = cv2.boundingRect(largest_contour)
@@ -88,7 +94,8 @@ def auto_crop_document(img, padding_percent=0.005):
         cv2.rectangle(comparison_img, (x, y), (x + w, y + h), (255, 0, 0), 2)
         # Coordinate-based box in green
         cv2.rectangle(comparison_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-        #show_image(comparison_img, "7_bounding_boxes_comparison")
+        # if Utils.is_debug():
+        #     show_image(comparison_img, "crop_7_bounding_boxes_comparison")
         
         # If the coordinate-based method gives a significantly larger area, use it
         if coords_area > contour_area * 1.2:
@@ -113,6 +120,8 @@ def auto_crop_document(img, padding_percent=0.005):
     
     if w < min_width or h < min_height:
         Utils.log_info("Detected crop area too small, returning original image")
+        # if Utils.is_debug():
+        #     show_image(cv_img, "crop_8_no_crop_too_small")
         return original_pil
     
     # Draw the final crop rectangle on the image
@@ -120,7 +129,8 @@ def auto_crop_document(img, padding_percent=0.005):
     cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 255, 255), 4)  # Yellow rectangle
     cv2.putText(debug_img, f"CROP AREA: {w}x{h}", (x, y-10), 
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-    ##show_image(debug_img, "8_final_crop_area")
+    # if Utils.is_debug():
+    #     show_image(debug_img, "crop_8_final_crop_area")
     
     Utils.log_info(f"Cropping from ({x}, {y}) with size ({w}, {h})")
     Utils.log_info(f"Original size: ({width}, {height}), New size: ({w}, {h})")
@@ -131,7 +141,8 @@ def auto_crop_document(img, padding_percent=0.005):
     
     # Show the final cropped result
     cropped_cv = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
-    ##show_image(cropped_cv, "9_final_cropped_result")
+    # if Utils.is_debug():
+    #     show_image(cropped_cv, "crop_9_final_cropped_result")
     
     return cropped_pil
 
@@ -172,11 +183,11 @@ def detect_document_corners(img):
     
     return None
 
-
 def detect_contour_angle(img):
     """
     Detect the rotation angle using the blackest parts of the image.
     This focuses on text/content rather than document edges.
+    Returns both angle and the bounding rectangle.
     """
     # Convert PIL Image to OpenCV format if needed
     if isinstance(img, Image.Image):
@@ -184,38 +195,26 @@ def detect_contour_angle(img):
     else:
         cv_img = img
     
-    # Show original image
-    if Utils.is_debug():
-        show_image(cv_img, "1_original_for_angle_detection")
-    
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-    if Utils.is_debug():
-        show_image(gray, "2_grayscale_for_angle")
     
     # Apply Gaussian blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    if Utils.is_debug():
-        show_image(blurred, "3_blurred_for_angle")
     
     # Create aggressive threshold to get only the blackest parts (text/content)
     # Use a lower threshold value to capture only the darkest pixels
-    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    if Utils.is_debug():
-        show_image(thresh, "4_otsu_threshold")
+    _, thresh = cv2.threshold(blurred, 30, 255, cv2.THRESH_BINARY_INV)
     
     # Apply morphological operations to connect nearby text
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    if Utils.is_debug():
-        show_image(thresh, "5_morphology_closed")
     
     # Find all black pixels (text/content pixels)
     black_pixels = np.column_stack(np.where(thresh > 0))
     
     if len(black_pixels) == 0:
         Utils.log_info("No black pixels found for angle detection, returning 0")
-        return 0
+        return 0, None
     
     # Convert to (x, y) format for convex hull
     black_pixels_xy = np.array([(pt[1], pt[0]) for pt in black_pixels], dtype=np.int32)
@@ -223,24 +222,18 @@ def detect_contour_angle(img):
     # Find the convex hull of all black pixels to get the largest bounding box
     hull = cv2.convexHull(black_pixels_xy)
     
-    # Show convex hull on the original image
-    if Utils.is_debug():
-        debug_hull_img = cv_img.copy()
-        cv2.drawContours(debug_hull_img, [hull], -1, (255, 0, 0), 3)  # Blue hull
-        show_image(debug_hull_img, "6_convex_hull")
+    # Show the hull points as individual dots
+    # if Utils.is_debug():
+    #     debug_points_img = cv_img.copy()
+    #     for i, pt in enumerate(hull):
+    #         cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
+    #         if i < 10:  # Only label first 10 points to avoid clutter
+    #             cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
+    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    #     show_image(debug_points_img, "1_hull_points")
     
     # Get the minimum area rectangle that fits the convex hull (largest bounding box)
     rect = cv2.minAreaRect(hull)
-    
-    # Show the hull points as individual dots
-    if Utils.is_debug():
-        debug_points_img = cv_img.copy()
-        for i, pt in enumerate(hull):
-            cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
-            if i < 10:  # Only label first 10 points to avoid clutter
-                cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-        show_image(debug_points_img, "7_hull_points")
     
     # Extract the angle from the rectangle
     angle = rect[2]
@@ -267,32 +260,62 @@ def detect_contour_angle(img):
         else:
             angle = angle + 90
     
+    # Get the bounding rectangle coordinates
+    box = cv2.boxPoints(rect)
+    box = np.int32(box)
+    
+    # Get the axis-aligned bounding rectangle for cropping
+    x_coords = box[:, 0]
+    y_coords = box[:, 1]
+    x_min, x_max = np.min(x_coords), np.max(x_coords)
+    y_min, y_max = np.min(y_coords), np.max(y_coords)
+    
+    # Add some padding (2% of image dimensions)
+    img_height, img_width = cv_img.shape[:2]
+    padding_x = int(img_width * 0.02)
+    padding_y = int(img_height * 0.02)
+    
+    # Apply padding but keep within image bounds
+    crop_rect = {
+        'x': max(0, x_min - padding_x),
+        'y': max(0, y_min - padding_y),
+        'width': min(img_width - max(0, x_min - padding_x), (x_max - x_min) + 2 * padding_x),
+        'height': min(img_height - max(0, y_min - padding_y), (y_max - y_min) + 2 * padding_y)
+    }
+    
     # Draw the convex hull and bounding rectangle for visualization
-    if Utils.is_debug():
-        debug_img = cv_img.copy()
-        
-        # Draw convex hull in blue
-        cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
-        
-        # Draw the minimum area rectangle in green
-        box = cv2.boxPoints(rect)
-        box = np.int32(box)
-        cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
-        
-        # Add text info
-        cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-        cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-        show_image(debug_img, "8_final_angle_detection")
+    # if Utils.is_debug():
+    #     debug_img = cv_img.copy()
+    #     
+    #     # Draw convex hull in blue
+    #     cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
+    #     
+    #     # Draw the minimum area rectangle in green
+    #     cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
+    #     
+    #     # Draw the crop rectangle in yellow
+    #     cv2.rectangle(debug_img, (crop_rect['x'], crop_rect['y']), 
+    #                  (crop_rect['x'] + crop_rect['width'], crop_rect['y'] + crop_rect['height']), 
+    #                  (0, 255, 255), 3)
+    #     
+    #     # Add text info
+    #     cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    #     cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+    #     cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    #     cv2.putText(debug_img, f"Crop: {crop_rect['width']}x{crop_rect['height']}", (10, 150), 
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    #     
+    #     show_image(debug_img, "2_final_angle_detection_with_crop")
     
     Utils.log_info(f"Detected angle from largest bounding box: {angle:.1f}°")
     Utils.log_info(f"Convex hull has {len(hull)} points")
     Utils.log_info(f"Bounding rectangle: {width:.1f} x {height:.1f}")
-    return angle
+    Utils.log_info(f"Crop rectangle: {crop_rect}")
+    
+    return angle, crop_rect
 
 
 def normalize_image_brightness(img):
@@ -309,9 +332,8 @@ def normalize_image_brightness(img):
         was_pil = False
     
     # Show original for comparison
-    if Utils.is_debug():
-        ##show_image(cv_img, "0_original_before_normalization")
-        pass
+    # if Utils.is_debug():
+    #     show_image(cv_img, "norm_0_original_before_normalization")
     
     # Convert to grayscale for analysis
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
@@ -325,9 +347,9 @@ def normalize_image_brightness(img):
         for i in range(3):
             cv_img[:, :, i] = ((cv_img[:, :, i] - min_val) / (max_val - min_val) * 255).astype(np.uint8)
         
-        if Utils.is_debug():
-            ##show_image(cv_img, "1_range_stretched")
-            Utils.log_info(f"Dynamic range: {min_val}-{max_val} → 0-255")
+        # if Utils.is_debug():
+        #     show_image(cv_img, "norm_1_range_stretched")
+        Utils.log_info(f"Dynamic range: {min_val}-{max_val} → 0-255")
     else:
         Utils.log_info("Image has no dynamic range to stretch")
     
@@ -351,15 +373,14 @@ def normalize_image_brightness(img):
         table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
         cv_img = cv2.LUT(cv_img, table)
         
-        if Utils.is_debug():
-            #show_image(cv_img, f"2_gamma_corrected_{gamma}")
-            pass
+        # if Utils.is_debug():
+        #     show_image(cv_img, f"norm_2_gamma_corrected_{gamma}")
     
-    if Utils.is_debug():
-        # Show before/after comparison
-        original_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR) if was_pil else img
-        comparison = np.hstack((original_img, cv_img))
-        ##show_image(comparison, "3_before_after_comparison")
+    # if Utils.is_debug():
+    #     # Show before/after comparison
+    #     original_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR) if was_pil else img
+    #     comparison = np.hstack((original_img, cv_img))
+    #     show_image(comparison, "norm_3_before_after_comparison")
     
     # Convert back to PIL if input was PIL
     if was_pil:
@@ -370,16 +391,33 @@ def normalize_image_brightness(img):
 
 
 def apply_calibration_to_image(img: Image, calibration_rect=None):
+    # Show original image
+    # if Utils.is_debug():
+    #     cv_original = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    #     show_image(cv_original, "0_original_input")
+    
     # First, normalize brightness and contrast to handle varying lighting
     normalized_img = normalize_image_brightness(img)
     Utils.log_info("Applied brightness and contrast normalization")
     
+    # Show normalized image
+    # if Utils.is_debug():
+    #     cv_normalized = cv2.cvtColor(np.array(normalized_img), cv2.COLOR_RGB2BGR)
+    #     show_image(cv_normalized, "1_after_normalization")
+    
     # Convert PIL Image to OpenCV format
     cv_img = cv2.cvtColor(np.array(normalized_img), cv2.COLOR_RGB2BGR)
     
-    # Detect the angle using the blackest parts of the image (text/content)
-    angle = detect_contour_angle(cv_img)
-    Utils.log_info(f"Using blackest parts angle detection: {angle:.1f}°")
+    # Use angle from calibration_rect if provided, otherwise detect it
+    if False:
+        # Extract angle from calibration_rect tuple: (center, (width, height), angle)
+        angle = calibration_rect[2]
+        crop_rect = None  # When using provided calibration_rect, we don't have crop info
+        Utils.log_info(f"Using provided angle from calibration_rect: {angle:.1f}°")
+    else:
+        # Detect the angle using the blackest parts of the image (text/content)
+        angle, crop_rect = detect_contour_angle(cv_img)
+        Utils.log_info(f"Using blackest parts angle detection: {angle:.1f}°")
     
     # Get image dimensions
     height, width = cv_img.shape[:2]
@@ -388,9 +426,8 @@ def apply_calibration_to_image(img: Image, calibration_rect=None):
     # Get rotation matrix
     M = cv2.getRotationMatrix2D(center, angle, 1.0)
 
-    if Utils.is_debug():
-        #show_image(cv_img, "normalized_before_rotation")
-        pass
+    # if Utils.is_debug():
+    #     show_image(cv_img, "2_before_rotation")
     
     # Perform the rotation on the normalized image
     rotated = cv2.warpAffine(cv_img, M, (width, height), 
@@ -398,9 +435,8 @@ def apply_calibration_to_image(img: Image, calibration_rect=None):
                            borderMode=cv2.BORDER_CONSTANT, 
                            borderValue=(255, 255, 255))  # White background
 
-    if Utils.is_debug():
-        #show_image(rotated, "rotated_before_crop")
-        pass
+    # if Utils.is_debug():
+    #     show_image(rotated, "3_after_rotation")
     
     if Utils.is_debug() and abs(angle) > 1:
         Utils.log_info(f"Applied rotation of {angle:.1f}°")
@@ -409,8 +445,42 @@ def apply_calibration_to_image(img: Image, calibration_rect=None):
     # Convert back to PIL Image for cropping
     rotated_pil = Image.fromarray(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
     
-    # Now, auto-crop the rotated image to remove empty spaces
-    cropped_img = auto_crop_document(rotated_pil)
+    # Show before cropping
+    # if Utils.is_debug():
+    #     show_image(rotated, "4_before_crop")
+    
+    # Use crop rectangle from angle detection if available, otherwise use auto-crop
+    if crop_rect is not None:
+        Utils.log_info(f"Using crop rectangle from angle detection: {crop_rect}")
+        
+        # Apply the crop rectangle
+        cropped_img = rotated_pil.crop((
+            crop_rect['x'], 
+            crop_rect['y'], 
+            crop_rect['x'] + crop_rect['width'], 
+            crop_rect['y'] + crop_rect['height']
+        ))
+        
+        # if Utils.is_debug():
+        #     # Show the crop rectangle on the rotated image
+        #     debug_crop = rotated.copy()
+        #     cv2.rectangle(debug_crop, (crop_rect['x'], crop_rect['y']), 
+        #                  (crop_rect['x'] + crop_rect['width'], crop_rect['y'] + crop_rect['height']), 
+        #                  (0, 255, 255), 3)
+        #     cv2.putText(debug_crop, f"CROP: {crop_rect['width']}x{crop_rect['height']}", 
+        #                (crop_rect['x'], crop_rect['y']-10), 
+        #                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        #     show_image(debug_crop, "4_crop_rectangle_applied")
+        
+    else:
+        Utils.log_info("No crop rectangle available, using auto-crop")
+        # Fallback to auto-crop (when using provided calibration_rect)
+        cropped_img = auto_crop_document(rotated_pil)
+    
+    # Show final result
+    # if Utils.is_debug():
+    #     cv_final = cv2.cvtColor(np.array(cropped_img), cv2.COLOR_RGB2BGR)
+    #     show_image(cv_final, "5_final_result")
     
     return cropped_img
 
@@ -431,8 +501,9 @@ def get_calibration_rect_for_image(img_path, img=None):
     height, width = img.shape[:2]
     center = (width/2, height/2)
     
-    # Get the angle
-    angle = detect_contour_angle(img)
+    # Get the angle (we don't need the crop_rect here since this function 
+    # is used when calibration_rect is provided to apply_calibration_to_image)
+    angle, _ = detect_contour_angle(img)
     
     # Create a rectangle that covers most of the image
     rect_width = width * 0.95  # 95% of image width

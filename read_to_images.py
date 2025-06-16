@@ -12,7 +12,6 @@ import json
 from find_circles import find_circles, find_circles_cv2
 from internal_calibrate import (
     apply_calibration_to_image,
-    get_calibration_center_for_image,
     get_calibration_rect_for_image,
 )
 from fastapi import UploadFile
