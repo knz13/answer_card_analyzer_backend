@@ -17,7 +17,7 @@ def replace_all_not_used(text):
 
 def save_parameter_circle_counts(param_circle_counts, rectangle_type, rectangle_info=None):
     """
-    Save parameter combination circle counts to a JSON file.
+    Save parameter combination circle counts to a single aggregated JSON file.
     
     Args:
         param_circle_counts: Dictionary containing parameter combination -> circle count mapping
@@ -25,25 +25,30 @@ def save_parameter_circle_counts(param_circle_counts, rectangle_type, rectangle_
         rectangle_info: Additional info about the rectangle
     """
     try:
-        # Create filename based on rectangle type
-        rect_type_name = rectangle_type.value if hasattr(rectangle_type, 'value') else str(rectangle_type)
-        filename = f"parameter_circle_counts_{rect_type_name.lower()}.json"
+        # Use a single filename for all rectangle types
+        filename = "parameter_circle_counts_all_types.json"
         
         # Load existing data if file exists
-        existing_data = []
+        existing_data = {}
         if os.path.exists(filename):
             try:
                 with open(filename, 'r') as f:
                     existing_data = json.load(f)
-                Utils.log_info(f"📂 Loaded {len(existing_data)} existing entries from {filename}")
+                Utils.log_info(f"📂 Loaded existing data from {filename}")
             except (json.JSONDecodeError, IOError) as e:
                 Utils.log_error(f"Failed to load existing data from {filename}: {e}")
-                existing_data = []
+                existing_data = {}
+        
+        # Get rectangle type name
+        rect_type_name = rectangle_type.value if hasattr(rectangle_type, 'value') else str(rectangle_type)
+        
+        # Initialize rectangle type array if it doesn't exist
+        if rect_type_name not in existing_data:
+            existing_data[rect_type_name] = []
         
         # Create new entry
         new_entry = {
             'timestamp': datetime.now().isoformat(),
-            'rectangle_type': rect_type_name,
             'parameter_combinations': param_circle_counts
         }
         
@@ -55,13 +60,13 @@ def save_parameter_circle_counts(param_circle_counts, rectangle_type, rectangle_
                 'page_info': rectangle_info.get('page_info', '')
             }
         
-        # Append new data
-        existing_data.append(new_entry)
+        # Append new data to the specific rectangle type
+        existing_data[rect_type_name].append(new_entry)
         
-        # Keep only last 100 entries to prevent file from growing too large
-        if len(existing_data) > 100:
-            existing_data = existing_data[-100:]
-            Utils.log_info(f"🗂️ Trimmed data to last 100 entries")
+        # Keep only last 50 entries per rectangle type to prevent file from growing too large
+        if len(existing_data[rect_type_name]) > 50:
+            existing_data[rect_type_name] = existing_data[rect_type_name][-50:]
+            Utils.log_info(f"🗂️ Trimmed {rect_type_name} data to last 50 entries")
         
         # Save to file with pretty formatting
         with open(filename, 'w') as f:
@@ -71,10 +76,13 @@ def save_parameter_circle_counts(param_circle_counts, rectangle_type, rectangle_
         total_combinations = len(param_circle_counts)
         max_circles = max(param_circle_counts.values()) if param_circle_counts else 0
         best_param = max(param_circle_counts.items(), key=lambda x: x[1]) if param_circle_counts else ("None", 0)
+        entries_for_type = len(existing_data[rect_type_name])
+        total_rect_types = len(existing_data)
         
         Utils.log_info(f"✅ Parameter circle counts saved to {filename}")
-        Utils.log_info(f"📊 Entry #{len(existing_data)}: {total_combinations} parameter combinations tested")
+        Utils.log_info(f"📊 {rect_type_name} entry #{entries_for_type}: {total_combinations} parameter combinations tested")
         Utils.log_info(f"🏆 Best result: {best_param[0]} found {best_param[1]} circles")
+        Utils.log_info(f"📈 File now contains data for {total_rect_types} rectangle types")
         
     except Exception as e:
         Utils.log_error(f"Failed to save parameter circle counts: {e}")

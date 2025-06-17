@@ -149,8 +149,9 @@ def auto_crop_document(img, padding_percent=0.005):
 
 def detect_document_corners(img):
     """
-    Alternative method: Detect the four corners of a document using corner detection.
+    Enhanced method: Detect the four corners of a document using corner detection.
     Useful for documents that are tilted or have clear rectangular boundaries.
+    Returns the four corner points for perspective correction.
     """
     # Convert PIL Image to OpenCV format if needed
     if isinstance(img, Image.Image):
@@ -158,30 +159,176 @@ def detect_document_corners(img):
     else:
         cv_img = img
     
+    Utils.log_info("Attempting to detect document corners for perspective correction")
+    
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
     
     # Apply Gaussian blur
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    # Edge detection
-    edges = cv2.Canny(blurred, 75, 200)
+    # Try multiple edge detection strategies
+    edges_methods = [
+        {"name": "adaptive_canny", "params": {"low": 50, "high": 150}},
+        {"name": "adaptive_canny", "params": {"low": 30, "high": 100}},
+        {"name": "adaptive_canny", "params": {"low": 75, "high": 200}}
+    ]
     
-    # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    best_corners = None
+    best_score = 0
     
-    # Look for rectangular contours
-    for contour in contours:
-        # Approximate the contour
-        epsilon = 0.02 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
+    for method in edges_methods:
+        # Edge detection
+        edges = cv2.Canny(blurred, method["params"]["low"], method["params"]["high"])
         
-        # If we found a contour with 4 points, it might be our document
-        if len(approx) == 4:
-            return approx.reshape(4, 2)
+        # Apply morphological operations to close gaps
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        
+        # Find contours
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        
+        Utils.log_info(f"Edge method {method['name']} found {len(contours)} contours")
+        
+        # Look for rectangular contours
+        for i, contour in enumerate(contours[:10]):  # Check top 10 contours
+            area = cv2.contourArea(contour)
+            if area < (cv_img.shape[0] * cv_img.shape[1] * 0.1):  # Too small
+                continue
+                
+            # Approximate the contour
+            epsilon = 0.02 * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            
+            # Try different epsilon values if 4 corners not found
+            for eps_mult in [0.015, 0.025, 0.03, 0.035]:
+                if len(approx) != 4:
+                    epsilon = eps_mult * cv2.arcLength(contour, True)
+                    approx = cv2.approxPolyDP(contour, epsilon, True)
+                if len(approx) == 4:
+                    break
+            
+            # If we found a contour with 4 points
+            if len(approx) == 4:
+                corners = approx.reshape(4, 2)
+                
+                # Validate the corners (should form a reasonable quadrilateral)
+                score = validate_document_corners(corners, cv_img.shape)
+                Utils.log_info(f"Found 4-point contour with score: {score:.3f}")
+                
+                if score > best_score and score > 0.5:  # Minimum quality threshold
+                    best_corners = corners
+                    best_score = score
+                    Utils.log_info(f"New best corners found with score: {score:.3f}")
+                    
+                    # if Utils.is_debug():
+                    #     debug_img = cv_img.copy()
+                    #     cv2.drawContours(debug_img, [approx], -1, (0, 255, 0), 3)
+                    #     for j, corner in enumerate(corners):
+                    #         cv2.circle(debug_img, tuple(corner), 10, (255, 0, 0), -1)
+                    #         cv2.putText(debug_img, str(j), tuple(corner + 15), 
+                    #                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                    #     show_image(debug_img, f"corners_method_{method['name']}_contour_{i}")
+                
+                # If we found a very good match, no need to continue
+                if score > 0.9:
+                    break
+        
+        # If we found a very good match, no need to try other methods
+        if best_score > 0.9:
+            break
     
-    return None
+    if best_corners is not None:
+        Utils.log_info(f"Final best corners detected with score: {best_score:.3f}")
+        return order_corners(best_corners)
+    else:
+        Utils.log_info("No valid document corners found")
+        return None
+
+
+def validate_document_corners(corners, img_shape):
+    """
+    Validate detected corners to ensure they form a reasonable document rectangle.
+    Returns a score between 0 and 1 (higher is better).
+    """
+    if len(corners) != 4:
+        return 0
+    
+    h, w = img_shape[:2]
+    score = 0
+    
+    # Check if corners are within image bounds
+    if np.all(corners >= 0) and np.all(corners[:, 0] < w) and np.all(corners[:, 1] < h):
+        score += 0.2
+    else:
+        return 0  # Invalid if any corner is outside image
+    
+    # Calculate area of the quadrilateral
+    area = cv2.contourArea(corners)
+    img_area = w * h
+    area_ratio = area / img_area
+    
+    # Area should be reasonable (between 10% and 95% of image)
+    if 0.1 <= area_ratio <= 0.95:
+        score += 0.3 * min(area_ratio / 0.5, (1 - area_ratio) / 0.05)
+    
+    # Check if the quadrilateral is approximately rectangular
+    # Calculate all side lengths
+    ordered = order_corners(corners)
+    sides = []
+    for i in range(4):
+        p1 = ordered[i]
+        p2 = ordered[(i + 1) % 4]
+        sides.append(np.linalg.norm(p2 - p1))
+    
+    # Opposite sides should be similar
+    top_bottom_ratio = min(sides[0], sides[2]) / max(sides[0], sides[2])
+    left_right_ratio = min(sides[1], sides[3]) / max(sides[1], sides[3])
+    
+    score += 0.25 * (top_bottom_ratio + left_right_ratio) / 2
+    
+    # Check angles (should be close to 90 degrees for a rectangle)
+    angles = []
+    for i in range(4):
+        p1 = ordered[(i - 1) % 4]
+        p2 = ordered[i]
+        p3 = ordered[(i + 1) % 4]
+        
+        v1 = p1 - p2
+        v2 = p3 - p2
+        
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+        angle = np.arccos(np.clip(cos_angle, -1, 1))
+        angles.append(abs(angle - np.pi/2))  # Deviation from 90 degrees
+    
+    avg_angle_deviation = np.mean(angles)
+    angle_score = max(0, 1 - (avg_angle_deviation / (np.pi/4)))  # Normalize to 0-1
+    score += 0.25 * angle_score
+    
+    return score
+
+
+def order_corners(corners):
+    """
+    Order corners in a consistent way: top-left, top-right, bottom-right, bottom-left.
+    """
+    # Sort by Y coordinate (top to bottom)
+    corners = corners[np.argsort(corners[:, 1])]
+    
+    # Get top two and bottom two points
+    top_two = corners[:2]
+    bottom_two = corners[2:]
+    
+    # Sort top two by X coordinate (left to right)
+    top_two = top_two[np.argsort(top_two[:, 0])]
+    
+    # Sort bottom two by X coordinate (left to right)
+    bottom_two = bottom_two[np.argsort(bottom_two[:, 0])]
+    
+    # Return in order: top-left, top-right, bottom-right, bottom-left
+    return np.array([top_two[0], top_two[1], bottom_two[1], bottom_two[0]], dtype=np.float32)
+
 
 def detect_contour_angle(img):
     """
@@ -468,7 +615,7 @@ def normalize_image_brightness(img):
         return cv_img
 
 
-def apply_calibration_to_image(img: Image, calibration_rect=None,padding_percent=0.005):
+def apply_calibration_to_image(img: Image, calibration_rect=None, padding_percent=0.005):
     # Show original image
     # if Utils.is_debug():
     #     cv_original = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -492,81 +639,106 @@ def apply_calibration_to_image(img: Image, calibration_rect=None,padding_percent
         angle = calibration_rect[2]
         crop_rect = None  # When using provided calibration_rect, we don't have crop info
         Utils.log_info(f"Using provided angle from calibration_rect: {angle:.1f}°")
+        
+        # Create transform info for legacy compatibility
+        transform_info = {
+            'type': 'rotation',
+            'angle': angle,
+            'crop_rect': None
+        }
     else:
-        # Detect the angle using the blackest parts of the image (text/content)
-        angle, crop_rect = detect_contour_angle(cv_img)
-        Utils.log_info(f"Using blackest parts angle detection: {angle:.1f}°")
-
-        # add padding to the crop_rect
-        crop_rect['x'] = crop_rect['x'] - padding_percent * crop_rect['width']
-        crop_rect['y'] = crop_rect['y'] - padding_percent * crop_rect['height']
-        crop_rect['width'] = crop_rect['width'] + 2 * padding_percent * crop_rect['width']
-        crop_rect['height'] = crop_rect['height'] + 2 * padding_percent * crop_rect['height']
+        # Detect both rotation and perspective/shear distortion
+        transform_info = detect_shear_and_perspective(cv_img)
         
-    # Get image dimensions
-    height, width = cv_img.shape[:2]
-    center = (width // 2, height // 2)
+        if transform_info['type'] == 'perspective':
+            Utils.log_info(f"Using perspective correction (distortion: {transform_info['distortion_score']:.3f})")
+        else:
+            method = transform_info.get('method', 'unknown')
+            Utils.log_info(f"Using rotation correction ({transform_info['angle']:.1f}°) via {method}")
+            
+            # Add padding to the crop_rect for rotation-only correction
+            if transform_info['crop_rect'] is not None:
+                crop_rect = transform_info['crop_rect']
+                crop_rect['x'] = crop_rect['x'] - padding_percent * crop_rect['width']
+                crop_rect['y'] = crop_rect['y'] - padding_percent * crop_rect['height']
+                crop_rect['width'] = crop_rect['width'] + 2 * padding_percent * crop_rect['width']
+                crop_rect['height'] = crop_rect['height'] + 2 * padding_percent * crop_rect['height']
+                transform_info['crop_rect'] = crop_rect
     
-    # Get rotation matrix
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-
-    # if Utils.is_debug():
-    #     show_image(cv_img, "2_before_rotation")
-    
-    # Perform the rotation on the normalized image
-    rotated = cv2.warpAffine(cv_img, M, (width, height), 
-                           flags=cv2.INTER_CUBIC, 
-                           borderMode=cv2.BORDER_CONSTANT, 
-                           borderValue=(255, 255, 255))  # White background
-
-    # if Utils.is_debug():
-    #     show_image(rotated, "3_after_rotation")
-    
-    if Utils.is_debug() and abs(angle) > 1:
-        Utils.log_info(f"Applied rotation of {angle:.1f}°")
-        pass
-    
-    # Convert back to PIL Image for cropping
-    rotated_pil = Image.fromarray(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
-    
-    # Show before cropping
-    # if Utils.is_debug():
-    #     show_image(rotated, "4_before_crop")
-    
-    # Use crop rectangle from angle detection if available, otherwise use auto-crop
-    if crop_rect is not None:
-        Utils.log_info(f"Using crop rectangle from angle detection: {crop_rect}")
+    # Apply the appropriate transformation (rotation or perspective)
+    if transform_info['type'] == 'perspective':
+        # Apply perspective correction
+        corrected_img = apply_perspective_correction(cv_img, transform_info)
         
-        # Apply the crop rectangle
-        cropped_img = rotated_pil.crop((
-            crop_rect['x'], 
-            crop_rect['y'], 
-            crop_rect['x'] + crop_rect['width'], 
-            crop_rect['y'] + crop_rect['height']
-        ))
+        # For perspective correction, auto-crop to remove any remaining white space
+        final_img = auto_crop_document(corrected_img, padding_percent)
         
+    else:
+        # Apply rotation correction (legacy path)
+        height, width = cv_img.shape[:2]
+        center = (width // 2, height // 2)
+        
+        # Get rotation matrix
+        M = cv2.getRotationMatrix2D(center, transform_info['angle'], 1.0)
+
         # if Utils.is_debug():
-        #     # Show the crop rectangle on the rotated image
-        #     debug_crop = rotated.copy()
-        #     cv2.rectangle(debug_crop, (crop_rect['x'], crop_rect['y']), 
-        #                  (crop_rect['x'] + crop_rect['width'], crop_rect['y'] + crop_rect['height']), 
-        #                  (0, 255, 255), 3)
-        #     cv2.putText(debug_crop, f"CROP: {crop_rect['width']}x{crop_rect['height']}", 
-        #                (crop_rect['x'], crop_rect['y']-10), 
-        #                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-        #     show_image(debug_crop, "4_crop_rectangle_applied")
+        #     show_image(cv_img, "2_before_rotation")
         
-    else:
-        Utils.log_info("No crop rectangle available, using auto-crop")
-        # Fallback to auto-crop (when using provided calibration_rect)
-        cropped_img = auto_crop_document(rotated_pil)
+        # Perform the rotation on the normalized image
+        rotated = cv2.warpAffine(cv_img, M, (width, height), 
+                               flags=cv2.INTER_CUBIC, 
+                               borderMode=cv2.BORDER_CONSTANT, 
+                               borderValue=(255, 255, 255))  # White background
+
+        # if Utils.is_debug():
+        #     show_image(rotated, "3_after_rotation")
+        
+        if Utils.is_debug() and abs(transform_info['angle']) > 1:
+            Utils.log_info(f"Applied rotation of {transform_info['angle']:.1f}°")
+            pass
+        
+        # Convert back to PIL Image for cropping
+        rotated_pil = Image.fromarray(cv2.cvtColor(rotated, cv2.COLOR_BGR2RGB))
+        
+        # Show before cropping
+        # if Utils.is_debug():
+        #     show_image(rotated, "4_before_crop")
+        
+        # Use crop rectangle from angle detection if available, otherwise use auto-crop
+        if transform_info['crop_rect'] is not None:
+            Utils.log_info(f"Using crop rectangle from angle detection: {transform_info['crop_rect']}")
+            
+            # Apply the crop rectangle
+            final_img = rotated_pil.crop((
+                transform_info['crop_rect']['x'], 
+                transform_info['crop_rect']['y'], 
+                transform_info['crop_rect']['x'] + transform_info['crop_rect']['width'], 
+                transform_info['crop_rect']['y'] + transform_info['crop_rect']['height']
+            ))
+            
+            # if Utils.is_debug():
+            #     # Show the crop rectangle on the rotated image
+            #     debug_crop = rotated.copy()
+            #     cv2.rectangle(debug_crop, (transform_info['crop_rect']['x'], transform_info['crop_rect']['y']), 
+            #                  (transform_info['crop_rect']['x'] + transform_info['crop_rect']['width'], 
+            #                   transform_info['crop_rect']['y'] + transform_info['crop_rect']['height']), 
+            #                  (0, 255, 255), 3)
+            #     cv2.putText(debug_crop, f"CROP: {transform_info['crop_rect']['width']}x{transform_info['crop_rect']['height']}", 
+            #                (transform_info['crop_rect']['x'], transform_info['crop_rect']['y']-10), 
+            #                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+            #     show_image(debug_crop, "4_crop_rectangle_applied")
+            
+        else:
+            Utils.log_info("No crop rectangle available, using auto-crop")
+            # Fallback to auto-crop (when using provided calibration_rect)
+            final_img = auto_crop_document(rotated_pil, padding_percent)
     
     # Show final result
     # if Utils.is_debug():
-    #     cv_final = cv2.cvtColor(np.array(cropped_img), cv2.COLOR_RGB2BGR)
+    #     cv_final = cv2.cvtColor(np.array(final_img), cv2.COLOR_RGB2BGR)
     #     show_image(cv_final, "5_final_result")
     
-    return cropped_img
+    return final_img
 
 def show_image(image, text="image"):
     cv2.imshow(text, image)
@@ -604,6 +776,275 @@ def get_calibration_center_for_image(image_path, img=None):
     
     height, width = img.shape[:2]
     return (width/2, height/2)  # Return center of image
+
+def detect_shear_and_perspective(img):
+    """
+    Detect both rotation and shear/perspective distortion.
+    Returns transformation matrix for perspective correction if shear is detected,
+    otherwise returns simple rotation angle.
+    """
+    # Convert PIL Image to OpenCV format if needed
+    if isinstance(img, Image.Image):
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    else:
+        cv_img = img
+    
+    Utils.log_info("Detecting shear and perspective distortion")
+    
+    # First try to detect document corners for perspective correction
+    corners = detect_document_corners(cv_img)
+    
+    if corners is not None:
+        Utils.log_info("Document corners detected, checking for perspective distortion")
+        
+        # Check if there's significant perspective distortion
+        h, w = cv_img.shape[:2]
+        
+        # Calculate the ideal rectangle corners
+        ideal_corners = np.array([
+            [0, 0],
+            [w, 0], 
+            [w, h],
+            [0, h]
+        ], dtype=np.float32)
+        
+        # Check how much the detected corners deviate from ideal rectangle
+        perspective_score = calculate_perspective_distortion(corners, ideal_corners)
+        
+        Utils.log_info(f"Perspective distortion score: {perspective_score:.3f}")
+        
+        if perspective_score > 0.05:  # Significant distortion threshold
+            Utils.log_info("Significant perspective distortion detected, will use perspective correction")
+            
+            # Calculate transformation matrix for perspective correction
+            # Create target rectangle with some padding
+            padding = min(w, h) * 0.02
+            target_corners = np.array([
+                [padding, padding],
+                [w - padding, padding],
+                [w - padding, h - padding],
+                [padding, h - padding]
+            ], dtype=np.float32)
+            
+            transform_matrix = cv2.getPerspectiveTransform(corners, target_corners)
+            
+            return {
+                'type': 'perspective',
+                'matrix': transform_matrix,
+                'corners': corners,
+                'target_corners': target_corners,
+                'distortion_score': perspective_score
+            }
+    
+    # If no significant perspective distortion, try Hough line skew detection
+    Utils.log_info("No significant perspective distortion, trying Hough line skew detection")
+    hough_angle = detect_hough_line_skew(cv_img)
+    
+    if abs(hough_angle) > 0.5:  # Significant skew detected
+        Utils.log_info(f"Hough line skew detection found {hough_angle:.2f}° skew")
+        
+        # For simple skew correction, we'll use rotation
+        angle, crop_rect = hough_angle, None
+        
+        # Try to get crop rectangle from contour detection
+        _, crop_rect = detect_contour_angle(cv_img)
+        
+        return {
+            'type': 'rotation',
+            'angle': angle,
+            'crop_rect': crop_rect,
+            'method': 'hough_lines'
+        }
+    
+    # Fallback to contour-based rotation detection
+    Utils.log_info("No significant skew from Hough lines, using contour-based rotation detection")
+    angle, crop_rect = detect_contour_angle(cv_img)
+    
+    return {
+        'type': 'rotation',
+        'angle': angle,
+        'crop_rect': crop_rect,
+        'method': 'contour_analysis'
+    }
+
+
+def calculate_perspective_distortion(detected_corners, ideal_corners):
+    """
+    Calculate how much the detected corners deviate from an ideal rectangle.
+    Returns a score where 0 = perfect rectangle, higher = more distortion.
+    """
+    # Normalize coordinates to 0-1 range
+    h, w = ideal_corners[2, 1], ideal_corners[2, 0]
+    norm_detected = detected_corners / np.array([w, h])
+    norm_ideal = ideal_corners / np.array([w, h])
+    
+    # Calculate average distance between corresponding corners
+    distances = np.linalg.norm(norm_detected - norm_ideal, axis=1)
+    avg_distance = np.mean(distances)
+    
+    return avg_distance
+
+
+def apply_perspective_correction(img, transform_info):
+    """
+    Apply perspective correction using the detected transformation.
+    """
+    # Convert PIL Image to OpenCV format if needed
+    if isinstance(img, Image.Image):
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        was_pil = True
+    else:
+        cv_img = img
+        was_pil = False
+    
+    height, width = cv_img.shape[:2]
+    
+    if transform_info['type'] == 'perspective':
+        Utils.log_info(f"Applying perspective correction (distortion score: {transform_info['distortion_score']:.3f})")
+        
+        # Apply perspective transformation
+        corrected = cv2.warpPerspective(cv_img, transform_info['matrix'], (width, height),
+                                      flags=cv2.INTER_CUBIC,
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=(255, 255, 255))
+        
+        # if Utils.is_debug():
+        #     # Show the transformation
+        #     debug_img = cv_img.copy()
+        #     cv2.drawContours(debug_img, [transform_info['corners'].astype(int)], -1, (0, 255, 0), 3)
+        #     for i, corner in enumerate(transform_info['corners']):
+        #         cv2.circle(debug_img, tuple(corner.astype(int)), 8, (255, 0, 0), -1)
+        #         cv2.putText(debug_img, str(i), tuple((corner + 15).astype(int)), 
+        #                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        #     show_image(debug_img, "perspective_corners_detected")
+        #     show_image(corrected, "perspective_corrected")
+        
+        # For perspective correction, we'll crop to remove the padding
+        padding = min(width, height) * 0.02
+        cropped = corrected[int(padding):int(height-padding), int(padding):int(width-padding)]
+        
+    else:  # rotation correction
+        Utils.log_info(f"Applying rotation correction ({transform_info['angle']:.1f}°)")
+        
+        center = (width // 2, height // 2)
+        M = cv2.getRotationMatrix2D(center, transform_info['angle'], 1.0)
+        
+        corrected = cv2.warpAffine(cv_img, M, (width, height),
+                                 flags=cv2.INTER_CUBIC,
+                                 borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=(255, 255, 255))
+        cropped = corrected  # Will crop later using crop_rect
+    
+    # Convert back to PIL if needed
+    if was_pil:
+        return Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
+    else:
+        return cropped
+
+def detect_hough_line_skew(img):
+    """
+    Detect document skew using Hough line detection.
+    This method works well for documents with clear text lines.
+    Returns the skew angle in degrees.
+    """
+    # Convert PIL Image to OpenCV format if needed
+    if isinstance(img, Image.Image):
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    else:
+        cv_img = img
+    
+    Utils.log_info("Detecting skew using Hough line transform")
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+    
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    
+    # Create binary image to enhance text
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Apply morphological operations to connect text elements
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 1))  # Horizontal kernel to connect text
+    morphed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    
+    # Find edges
+    edges = cv2.Canny(morphed, 50, 150, apertureSize=3)
+    
+    # Detect lines using Hough transform
+    lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+    
+    if lines is None:
+        Utils.log_info("No lines detected with Hough transform")
+        return 0
+    
+    Utils.log_info(f"Detected {len(lines)} lines with Hough transform")
+    
+    # Analyze line angles
+    angles = []
+    for line in lines:
+        rho, theta = line[0]
+        # Convert theta to angle in degrees
+        # theta is in radians, 0 to pi
+        angle = np.degrees(theta)
+        
+        # Focus on nearly horizontal lines (text lines)
+        # Convert to range -90 to 90 degrees
+        if angle > 90:
+            angle = angle - 180
+        elif angle < -90:
+            angle = angle + 180
+            
+        # Only consider lines that are roughly horizontal (within 45 degrees)
+        if abs(angle) <= 45:
+            angles.append(angle)
+    
+    if not angles:
+        Utils.log_info("No horizontal lines found for skew detection")
+        return 0
+    
+    # Calculate the most common angle (mode)
+    angles = np.array(angles)
+    
+    # Use histogram to find the most common angle
+    hist, bin_edges = np.histogram(angles, bins=90, range=(-45, 45))
+    max_bin_idx = np.argmax(hist)
+    skew_angle = (bin_edges[max_bin_idx] + bin_edges[max_bin_idx + 1]) / 2
+    
+    # Alternatively, use median for robustness
+    median_angle = np.median(angles)
+    
+    # Choose the angle with better support
+    if hist[max_bin_idx] >= len(angles) * 0.3:  # At least 30% of lines agree
+        final_angle = skew_angle
+        Utils.log_info(f"Using histogram mode angle: {final_angle:.2f}° (support: {hist[max_bin_idx]}/{len(angles)})")
+    else:
+        final_angle = median_angle
+        Utils.log_info(f"Using median angle: {final_angle:.2f}° (insufficient consensus for mode)")
+    
+    Utils.log_info(f"Detected skew angle using Hough lines: {final_angle:.2f}°")
+    
+    # if Utils.is_debug():
+    #     # Visualize the detected lines
+    #     debug_img = cv_img.copy()
+    #     if lines is not None:
+    #         for line in lines[:50]:  # Show first 50 lines
+    #             rho, theta = line[0]
+    #             a = np.cos(theta)
+    #             b = np.sin(theta)
+    #             x0 = a * rho
+    #             y0 = b * rho
+    #             x1 = int(x0 + 1000 * (-b))
+    #             y1 = int(y0 + 1000 * (a))
+    #             x2 = int(x0 - 1000 * (-b))
+    #             y2 = int(y0 - 1000 * (a))
+    #             cv2.line(debug_img, (x1, y1), (x2, y2), (0, 255, 0), 1)
+    #     
+    #     cv2.putText(debug_img, f"Skew: {final_angle:.1f}°", (10, 30),
+    #                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    #     show_image(debug_img, "hough_lines_skew_detection")
+    
+    return final_angle
 
 if __name__ == "__main__":
     images = convert_from_path("examples/target_examples/Marianna Dias.pdf")
