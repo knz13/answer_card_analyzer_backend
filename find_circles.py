@@ -4,6 +4,9 @@ import cv2
 import numpy as np
 from utils import Utils, show_image
 from websocket_types import BoxRectangleType
+import json
+import os
+from datetime import datetime
 
 
 def replace_all_not_used(text):
@@ -12,11 +15,73 @@ def replace_all_not_used(text):
     return text
 
 
+def save_parameter_circle_counts(param_circle_counts, rectangle_type, rectangle_info=None):
+    """
+    Save parameter combination circle counts to a JSON file.
+    
+    Args:
+        param_circle_counts: Dictionary containing parameter combination -> circle count mapping
+        rectangle_type: Type of rectangle being processed
+        rectangle_info: Additional info about the rectangle
+    """
+    try:
+        # Create filename based on rectangle type
+        rect_type_name = rectangle_type.value if hasattr(rectangle_type, 'value') else str(rectangle_type)
+        filename = f"parameter_circle_counts_{rect_type_name.lower()}.json"
+        
+        # Load existing data if file exists
+        existing_data = []
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r') as f:
+                    existing_data = json.load(f)
+                Utils.log_info(f"📂 Loaded {len(existing_data)} existing entries from {filename}")
+            except (json.JSONDecodeError, IOError) as e:
+                Utils.log_error(f"Failed to load existing data from {filename}: {e}")
+                existing_data = []
+        
+        # Create new entry
+        new_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'rectangle_type': rect_type_name,
+            'parameter_combinations': param_circle_counts
+        }
+        
+        if rectangle_info:
+            new_entry['rectangle_info'] = {
+                'name': rectangle_info.get('name', 'Unknown'),
+                'index': rectangle_info.get('index', 1),
+                'total': rectangle_info.get('total', 1),
+                'page_info': rectangle_info.get('page_info', '')
+            }
+        
+        # Append new data
+        existing_data.append(new_entry)
+        
+        # Keep only last 100 entries to prevent file from growing too large
+        if len(existing_data) > 100:
+            existing_data = existing_data[-100:]
+            Utils.log_info(f"🗂️ Trimmed data to last 100 entries")
+        
+        # Save to file with pretty formatting
+        with open(filename, 'w') as f:
+            json.dump(existing_data, f, indent=2)
+        
+        # Log summary of what was saved
+        total_combinations = len(param_circle_counts)
+        max_circles = max(param_circle_counts.values()) if param_circle_counts else 0
+        best_param = max(param_circle_counts.items(), key=lambda x: x[1]) if param_circle_counts else ("None", 0)
+        
+        Utils.log_info(f"✅ Parameter circle counts saved to {filename}")
+        Utils.log_info(f"📊 Entry #{len(existing_data)}: {total_combinations} parameter combinations tested")
+        Utils.log_info(f"🏆 Best result: {best_param[0]} found {best_param[1]} circles")
+        
+    except Exception as e:
+        Utils.log_error(f"Failed to save parameter circle counts: {e}")
 
 
 def distance_between_points(point1, point2):
     return ((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)/2
-
 
 
 async def find_circles(img, rectangle, rectangle_type, on_progress=None):
@@ -338,9 +403,10 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
     best_score = -1
     best_params = None
     
-    # Track all circles found across all parameter combinations for consensus
-    all_circles_found = []  # List of (circle, param_combo, score) tuples
-    # Track parameter combination results for top-score analysis
+    # Track circle counts for each parameter combination
+    param_circle_counts = {}  # param_key -> circle_count
+    
+    # Track parameter combination results for consensus analysis
     param_combo_results = []  # List of (param_combo, score, circles) tuples
     
     # Parameter ranges to test
@@ -410,12 +476,11 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
                             # Store parameter combination result
                             param_combo_results.append((param_combo, score, circles))
 
-                            # Store all circles found with their parameters and score
-                            if circles is not None and len(circles[0]) > 0:
-                                for circle in circles[0]:
-                                    all_circles_found.append((circle, param_combo, score))
-
+                            # Count circles found by this parameter combination
                             circle_count = len(circles[0]) if circles is not None and len(circles[0]) > 0 else 0
+                            param_key = f"dp={dp}_p1={param1}_p2={param2}_th={threshold}"
+                            param_circle_counts[param_key] = circle_count
+
                             #Utils.log_info(f"[{test_count}/{total_combinations}] ({progress_percent:.1f}%) Testing dp={dp}, param1={param1}, param2={param2}, threshold={threshold} → Score: {score:.3f}, Circles: {circle_count}")
 
                             """ if Utils.is_debug():
@@ -457,9 +522,10 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
         await on_progress(f"{rect_info}Parameter testing complete!\nFinal score: {best_score:.3f} | Applying consensus recovery...")
     
     # Apply consensus-based circle recovery using top percentage of best-scoring combinations
+    final_circle_count = 0
     if best_circles is not None and len(param_combo_results) > 0:
         Utils.log_info(f"🔄 Running consensus analysis on {len(param_combo_results)} parameter combinations...")
-        enhanced_circles = apply_consensus_recovery(best_circles[0], param_combo_results, top_percentage=0.4,min_frequency_ratio=0.4)
+        enhanced_circles, circle_param_contributions = apply_consensus_recovery(best_circles[0], param_combo_results, top_percentage=0.4,min_frequency_ratio=0.4)
         
         # Filter circles by bounds before grid outlier removal
         Utils.log_info(f"🔍 Filtering circles by image bounds...")
@@ -483,7 +549,9 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
         Utils.log_info(f"🔄 Removing overlapping circles...")
         filtered_circles = remove_overlapping_circles(white_filtered_circles)
         
+        final_circle_count = len(filtered_circles)
         best_circles = np.array([filtered_circles], dtype=np.float32)
+        
         white_filter_text = f"white content filtering reduced to {len(white_filtered_circles)} circles, " if crop_img is not None else ""
         Utils.log_info(f"✨ Analysis complete: Consensus recovery enhanced to {len(enhanced_circles)} circles, "
                       f"bounds filtering reduced to {len(bounds_filtered_circles)} circles, "
@@ -498,8 +566,15 @@ async def find_circles_hough_iterative(gray_img, dp_base, min_dist, min_radius, 
         if on_progress is not None:
             await on_progress(f"{rect_info}✨ Analysis complete!\nFinal result: {len(best_circles[0]) if best_circles is not None else 0} circles detected")
 
+    # Create simple statistics structure
+    param_stats = {
+        'parameter_combinations': param_circle_counts,
+        'final_circle_count': final_circle_count,
+        'total_combinations_tested': len(param_circle_counts)
+    }
+
     Utils.log_info(f"🏆 Final result - Best parameters: {best_params} with score: {best_score:.3f}")
-    return best_circles, best_params, best_score
+    return best_circles, best_params, best_score, param_stats
 
 
 def apply_consensus_recovery(best_circles, param_combo_results, 
@@ -514,6 +589,10 @@ def apply_consensus_recovery(best_circles, param_combo_results,
         location_tolerance: Pixel tolerance for considering circles at same location
         min_frequency_ratio: Minimum ratio of appearances in top combinations to be considered for recovery
         top_percentage: Percentage of top-scoring combinations to consider (0.4 = top 40%)
+    
+    Returns:
+        enhanced_circles: List of enhanced circles
+        circle_param_contributions: Dictionary mapping circle indices to parameter contribution info
     """
     # Sort parameter combinations by score (highest first) and take top percentage
     sorted_results = sorted(param_combo_results, key=lambda x: x[1], reverse=True)
@@ -544,6 +623,7 @@ def apply_consensus_recovery(best_circles, param_combo_results,
     
     # Count frequencies and find consensus circles
     consensus_circles = []
+    circle_param_contributions = {}  # Will map circle index to parameter contribution info
     min_appearances = max(1, int(len(top_results) * min_frequency_ratio))
     
     Utils.log_info(f"Looking for circles that appear in at least {min_appearances} out of {len(top_results)} top combinations ({min_frequency_ratio*100:.0f}%)")
@@ -559,14 +639,37 @@ def apply_consensus_recovery(best_circles, param_combo_results,
             avg_score = np.mean([c[2] for c in circles_at_location])
             
             consensus_circle = [avg_x, avg_y, avg_radius]
-            consensus_circles.append((consensus_circle, frequency, avg_score))
+            consensus_circles.append((consensus_circle, frequency, avg_score, circles_at_location))
             
             Utils.log_info(f"Consensus circle at ({avg_x:.1f}, {avg_y:.1f}) appeared {frequency}/{len(top_results)} times in top combinations")
     
-    # Check which consensus circles are missing from best result
+    # Check which consensus circles are missing from best result and build contribution tracking
     enhanced_circles = list(best_circles) if best_circles is not None else []
     
-    for consensus_circle, frequency, avg_score in consensus_circles:
+    # Track contributions for circles that were already in best result
+    for i, existing_circle in enumerate(enhanced_circles):
+        circle_param_contributions[i] = {
+            'source': 'best_result',
+            'contributing_params': [],
+            'frequency': 1,
+            'avg_score': 0.0
+        }
+        
+        # Find which consensus location this circle belongs to
+        for consensus_circle, frequency, avg_score, circles_at_location in consensus_circles:
+            distance = np.sqrt((consensus_circle[0] - existing_circle[0])**2 + 
+                             (consensus_circle[1] - existing_circle[1])**2)
+            if distance <= location_tolerance:
+                circle_param_contributions[i] = {
+                    'source': 'best_result',
+                    'contributing_params': [c[1] for c in circles_at_location],  # parameter combinations
+                    'frequency': frequency,
+                    'avg_score': avg_score
+                }
+                break
+    
+    # Add consensus circles that are missing from best result
+    for consensus_circle, frequency, avg_score, circles_at_location in consensus_circles:
         # Check if this consensus circle is already represented in best_circles
         is_already_present = False
         
@@ -578,11 +681,18 @@ def apply_consensus_recovery(best_circles, param_combo_results,
                 break
         
         if not is_already_present:
+            circle_index = len(enhanced_circles)
             enhanced_circles.append(consensus_circle)
+            circle_param_contributions[circle_index] = {
+                'source': 'consensus_recovery',
+                'contributing_params': [c[1] for c in circles_at_location],  # parameter combinations
+                'frequency': frequency,
+                'avg_score': avg_score
+            }
             Utils.log_info(f"Added consensus circle at ({consensus_circle[0]:.1f}, {consensus_circle[1]:.1f}) "
                           f"(appeared {frequency}/{len(top_results)} times in top combinations, avg_score: {avg_score:.3f})")
     
-    return enhanced_circles
+    return enhanced_circles, circle_param_contributions
 
 def remove_grid_outliers(circles, tolerance_factor=0.5):
     """
@@ -981,7 +1091,7 @@ def remove_between_grid_circles(circles, grid_tolerance_factor=0.8):
     
     return aligned_circles
 
-def remove_white_content_circles(circles, crop_img, max_white_percentage=0.92, white_threshold=200):
+def remove_white_content_circles(circles, crop_img, max_white_percentage=0.97, white_threshold=200):
     """
     Remove circles that have too much white/light content inside them.
     This helps filter out false positive circles detected in areas that are mostly white.
@@ -1022,23 +1132,47 @@ def remove_white_content_circles(circles, crop_img, max_white_percentage=0.92, w
     for circle in circles:
         x, y, radius = int(circle[0]), int(circle[1]), int(circle[2])
         
-        # Calculate bounding box for the circle
-        y_min = max(y - radius, 0)
-        x_min = max(x - radius, 0)
-        y_max = min(y + radius, img_height)
-        x_max = min(x + radius, img_width)
+        # Calculate the full bounding box for the circle (even if it extends outside image)
+        full_y_min = y - radius
+        full_x_min = x - radius
+        full_y_max = y + radius
+        full_x_max = x + radius
         
-        # Extract the square region around the circle
-        circle_region = gray_img[y_min:y_max, x_min:x_max]
+        # Calculate dimensions of the full circle region
+        full_width = 2 * radius
+        full_height = 2 * radius
+        
+        # Create a white background region for the circle
+        circle_region = np.full((full_height, full_width), 255, dtype=np.uint8)  # White background
+        
+        # Calculate overlapping region between circle bbox and image
+        overlap_x_min = max(full_x_min, 0)
+        overlap_y_min = max(full_y_min, 0)
+        overlap_x_max = min(full_x_max, img_width)
+        overlap_y_max = min(full_y_max, img_height)
+        
+        # Check if there's any overlap with the image
+        if overlap_x_min < overlap_x_max and overlap_y_min < overlap_y_max:
+            # Extract the overlapping region from the original image
+            img_overlap = gray_img[overlap_y_min:overlap_y_max, overlap_x_min:overlap_x_max]
+            
+            # Calculate where to place this overlap in the circle region
+            dest_x_start = overlap_x_min - full_x_min
+            dest_y_start = overlap_y_min - full_y_min
+            dest_x_end = dest_x_start + (overlap_x_max - overlap_x_min)
+            dest_y_end = dest_y_start + (overlap_y_max - overlap_y_min)
+            
+            # Place the image overlap into the white circle region
+            circle_region[dest_y_start:dest_y_end, dest_x_start:dest_x_end] = img_overlap
         
         if circle_region.size == 0:
             Utils.log_info(f"REMOVING circle at ({circle[0]:.1f}, {circle[1]:.1f}) - empty region")
             continue
         
-        # Create a mask for the circular area
+        # Create a circular mask for the region
         region_height, region_width = circle_region.shape
-        center_x_local = x - x_min
-        center_y_local = y - y_min
+        center_x_local = radius  # Center is at radius offset in our full region
+        center_y_local = radius
         
         # Create circular mask
         y_indices, x_indices = np.ogrid[:region_height, :region_width]
@@ -1156,7 +1290,7 @@ async def find_circles_cv2(image_path, rectangle, rectangle_type, param2, dp, da
         expected_count = int(area_ratio * 200)  # Rough estimate
     
     # Pass original grayscale image (before thresholding) to iterative function
-    circles, best_params, best_score = await find_circles_hough_iterative(
+    circles, best_params, best_score, param_stats = await find_circles_hough_iterative(
         gray, dp, min_dist, min_radius, max_radius,
         expected_count=expected_count,
         circle_precision_percentage=circle_precision_percentage,
@@ -1166,6 +1300,27 @@ async def find_circles_cv2(image_path, rectangle, rectangle_type, param2, dp, da
     )
     
     Utils.log_info(f"Iterative Hough circles result - Score: {best_score:.3f}, Circles found: {len(circles[0]) if circles is not None else 0}")
+
+    # Save parameter statistics to JSON file
+    if param_stats:
+        param_stats['best_params'] = best_params
+        param_stats['best_score'] = best_score
+        param_stats['image_dimensions'] = {
+            'original_width': img.shape[1] // width_ratio,  # Original size before resize
+            'original_height': img.shape[0] // width_ratio,
+            'processed_width': img.shape[1],  # Size after resize
+            'processed_height': img.shape[0],
+            'crop_width': width,
+            'crop_height': height
+        }
+        save_parameter_circle_counts(param_stats['parameter_combinations'], rectangle_type, rectangle_info)
+        
+        # Log summary
+        total_combinations = param_stats.get('total_combinations_tested', 0)
+        final_count = param_stats.get('final_circle_count', 0)
+        best_combo = max(param_stats['parameter_combinations'].items(), key=lambda x: x[1]) if param_stats['parameter_combinations'] else ("None", 0)
+        Utils.log_info(f"📊 Parameter testing summary: {total_combinations} combinations tested, {final_count} final circles")
+        Utils.log_info(f"🏆 Best raw detection: {best_combo[0]} found {best_combo[1]} circles")
 
     if circles is None:
         return []

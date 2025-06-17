@@ -5,7 +5,7 @@ from pdf2image import convert_from_path
 from utils import Utils
 
 
-def auto_crop_document(img, padding_percent=0.00001):
+def auto_crop_document(img, padding_percent=0.005):
     """
     Automatically crop a scanned document to remove empty white spaces.
     
@@ -186,7 +186,7 @@ def detect_document_corners(img):
 def detect_contour_angle(img):
     """
     Detect the rotation angle using the blackest parts of the image.
-    This focuses on text/content rather than document edges.
+    Uses percentile-based method to ignore outliers and find main content bounds.
     Returns both angle and the bounding rectangle.
     """
     # Convert PIL Image to OpenCV format if needed
@@ -216,103 +216,181 @@ def detect_contour_angle(img):
         Utils.log_info("No black pixels found for angle detection, returning 0")
         return 0, None
     
-    # Convert to (x, y) format for convex hull
-    black_pixels_xy = np.array([(pt[1], pt[0]) for pt in black_pixels], dtype=np.int32)
+    Utils.log_info(f"Total black pixels found: {len(black_pixels)}")
     
-    # Find the convex hull of all black pixels to get the largest bounding box
-    hull = cv2.convexHull(black_pixels_xy)
+    # Try different percentile values if the first one doesn't work well
+    percentile_options = [1, 3, 5, 8]  # Less aggressive options
+    angle = 0
+    crop_rect = None
+    filtered_pixels_xy = None
     
-    # Show the hull points as individual dots
-    # if Utils.is_debug():
-    #     debug_points_img = cv_img.copy()
-    #     for i, pt in enumerate(hull):
-    #         cv2.circle(debug_points_img, (int(pt[0][0]), int(pt[0][1])), 8, (0, 0, 255), -1)
-    #         if i < 10:  # Only label first 10 points to avoid clutter
-    #             cv2.putText(debug_points_img, f"{i}", (int(pt[0][0])+12, int(pt[0][1])), 
-    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    #     show_image(debug_points_img, "1_hull_points")
-    
-    # Get the minimum area rectangle that fits the convex hull (largest bounding box)
-    rect = cv2.minAreaRect(hull)
-    
-    # Extract the angle from the rectangle
-    angle = rect[2]
-    
-    # Get the dimensions of the rectangle
-    width, height = rect[1]
-    
-    # Adjust angle based on rectangle orientation
-    if width > height:
-        # Landscape orientation
-        if angle < -45:
-            angle = 90 + angle
-    else:
-        # Portrait orientation  
-        if angle < -45:
-            angle = 90 + angle
+    for percentile in percentile_options:
+        Utils.log_info(f"Trying percentile: {percentile}%")
+        
+        y_coords = black_pixels[:, 0]
+        x_coords = black_pixels[:, 1]
+        
+        # Calculate percentile-based bounds to ignore outliers
+        y_min_percentile = int(np.percentile(y_coords, percentile))
+        y_max_percentile = int(np.percentile(y_coords, 100 - percentile))
+        x_min_percentile = int(np.percentile(x_coords, percentile))
+        x_max_percentile = int(np.percentile(x_coords, 100 - percentile))
+        
+        # Filter black pixels to only those within percentile bounds
+        mask = ((y_coords >= y_min_percentile) & (y_coords <= y_max_percentile) & 
+                (x_coords >= x_min_percentile) & (x_coords <= x_max_percentile))
+        
+        filtered_black_pixels = black_pixels[mask]
+        
+        Utils.log_info(f"Filtered pixels with {percentile}% percentile: {len(filtered_black_pixels)} (kept {len(filtered_black_pixels)/len(black_pixels)*100:.1f}%)")
+        
+        if len(filtered_black_pixels) < 100:  # Need minimum pixels for reliable angle detection
+            Utils.log_info(f"Not enough filtered pixels ({len(filtered_black_pixels)}), trying next percentile")
+            continue
+        
+        # Convert to (x, y) format for minimum area rectangle
+        filtered_pixels_xy = np.array([(pt[1], pt[0]) for pt in filtered_black_pixels], dtype=np.int32)
+        
+        # Get the minimum area rectangle that fits the filtered pixels
+        rect = cv2.minAreaRect(filtered_pixels_xy)
+        
+        # Extract the angle from the rectangle
+        angle = rect[2]
+        
+        # Get the dimensions of the rectangle
+        width, height = rect[1]
+        
+        Utils.log_info(f"Raw angle from minAreaRect: {angle:.2f}°, dimensions: {width:.1f}x{height:.1f}")
+        
+        # Adjust angle based on rectangle orientation
+        if width > height:
+            # Landscape orientation
+            if angle < -45:
+                angle = 90 + angle
         else:
-            angle = angle
+            # Portrait orientation  
+            if angle < -45:
+                angle = 90 + angle
+            else:
+                angle = angle
+        
+        # Limit the angle to reasonable rotation range
+        if abs(angle) > 45:
+            if angle > 0:
+                angle = angle - 90
+            else:
+                angle = angle + 90
+        
+        Utils.log_info(f"Adjusted angle: {angle:.2f}°")
+        
+        # If we got a reasonable angle (not exactly 0), use this result
+        if abs(angle) > 0.5:  # More than 0.5 degrees
+            Utils.log_info(f"Found good angle {angle:.2f}° with {percentile}% percentile")
+            
+            # Get the bounding rectangle coordinates using percentile bounds
+            x_min, x_max = x_min_percentile, x_max_percentile
+            y_min, y_max = y_min_percentile, y_max_percentile
+            
+            # Add some padding (0.2% of image dimensions)
+            img_height, img_width = cv_img.shape[:2]
+            padding_x = int(img_width * 0.002)
+            padding_y = int(img_height * 0.002)
+            
+            # Apply padding but keep within image bounds
+            crop_rect = {
+                'x': max(0, x_min - padding_x),
+                'y': max(0, y_min - padding_y),
+                'width': min(img_width - max(0, x_min - padding_x), (x_max - x_min) + 2 * padding_x),
+                'height': min(img_height - max(0, y_min - padding_y), (y_max - y_min) + 2 * padding_y)
+            }
+            
+            break
     
-    # Limit the angle to reasonable rotation range
-    if abs(angle) > 45:
-        if angle > 0:
-            angle = angle - 90
+    # If we still don't have a good result, fall back to simple bounding box
+    if abs(angle) <= 0.5 or crop_rect is None:
+        Utils.log_info("Percentile method failed, falling back to simple bounding box")
+        
+        # Use all black pixels for bounding box
+        y_coords = black_pixels[:, 0]
+        x_coords = black_pixels[:, 1]
+        
+        x_min, x_max = np.min(x_coords), np.max(x_coords)
+        y_min, y_max = np.min(y_coords), np.max(y_coords)
+        
+        # Add padding
+        img_height, img_width = cv_img.shape[:2]
+        padding_x = int(img_width * 0.002)
+        padding_y = int(img_height * 0.002)
+        
+        crop_rect = {
+            'x': max(0, x_min - padding_x),
+            'y': max(0, y_min - padding_y),
+            'width': min(img_width - max(0, x_min - padding_x), (x_max - x_min) + 2 * padding_x),
+            'height': min(img_height - max(0, y_min - padding_y), (y_max - y_min) + 2 * padding_y)
+        }
+        
+        # Try to get angle from all pixels as fallback
+        all_pixels_xy = np.array([(pt[1], pt[0]) for pt in black_pixels], dtype=np.int32)
+        rect = cv2.minAreaRect(all_pixels_xy)
+        angle = rect[2]
+        width, height = rect[1]
+        
+        # Apply same angle adjustments
+        if width > height:
+            if angle < -45:
+                angle = 90 + angle
         else:
-            angle = angle + 90
+            if angle < -45:
+                angle = 90 + angle
+        
+        if abs(angle) > 45:
+            if angle > 0:
+                angle = angle - 90
+            else:
+                angle = angle + 90
+                
+        Utils.log_info(f"Fallback angle: {angle:.2f}°")
     
-    # Get the bounding rectangle coordinates
-    box = cv2.boxPoints(rect)
-    box = np.int32(box)
+    # Draw visualization for debugging
+    """ if Utils.is_debug() and filtered_pixels_xy is not None:
+        debug_img = cv_img.copy()
+        
+        # Draw all filtered black pixels in blue (sample to avoid clutter)
+        if len(filtered_pixels_xy) > 1000:
+            sample_indices = np.random.choice(len(filtered_pixels_xy), 1000, replace=False)
+            sample_pixels = filtered_pixels_xy[sample_indices]
+        else:
+            sample_pixels = filtered_pixels_xy
+            
+        for pt in sample_pixels:
+            cv2.circle(debug_img, (int(pt[0]), int(pt[1])), 1, (255, 0, 0), -1)
+        
+        # Draw the minimum area rectangle in green
+        rect = cv2.minAreaRect(filtered_pixels_xy)
+        box = cv2.boxPoints(rect)
+        box = np.int32(box)
+        cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
+        
+        # Draw the crop rectangle in yellow
+        cv2.rectangle(debug_img, (crop_rect['x'], crop_rect['y']), 
+                     (crop_rect['x'] + crop_rect['width'], crop_rect['y'] + crop_rect['height']), 
+                     (0, 255, 255), 3)
+        
+        # Add text info
+        cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(debug_img, f"Filtered pixels: {len(filtered_pixels_xy)}", (10, 70), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        cv2.putText(debug_img, f"Total pixels: {len(black_pixels)}", (10, 110), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 150), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(debug_img, f"Crop: {crop_rect['width']}x{crop_rect['height']}", (10, 190), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        
+        show_image(debug_img, "2_percentile_based_angle_detection") """
     
-    # Get the axis-aligned bounding rectangle for cropping
-    x_coords = box[:, 0]
-    y_coords = box[:, 1]
-    x_min, x_max = np.min(x_coords), np.max(x_coords)
-    y_min, y_max = np.min(y_coords), np.max(y_coords)
-    
-    # Add some padding (0.2% of image dimensions)
-    img_height, img_width = cv_img.shape[:2]
-    padding_x = int(img_width * 0.002)
-    padding_y = int(img_height * 0.002)
-    
-    # Apply padding but keep within image bounds
-    crop_rect = {
-        'x': max(0, x_min - padding_x),
-        'y': max(0, y_min - padding_y),
-        'width': min(img_width - max(0, x_min - padding_x), (x_max - x_min) + 2 * padding_x),
-        'height': min(img_height - max(0, y_min - padding_y), (y_max - y_min) + 2 * padding_y)
-    }
-    
-    # Draw the convex hull and bounding rectangle for visualization
-    # if Utils.is_debug():
-    #     debug_img = cv_img.copy()
-    #     
-    #     # Draw convex hull in blue
-    #     cv2.drawContours(debug_img, [hull], -1, (255, 0, 0), 2)
-    #     
-    #     # Draw the minimum area rectangle in green
-    #     cv2.drawContours(debug_img, [box], 0, (0, 255, 0), 3)
-    #     
-    #     # Draw the crop rectangle in yellow
-    #     cv2.rectangle(debug_img, (crop_rect['x'], crop_rect['y']), 
-    #                  (crop_rect['x'] + crop_rect['width'], crop_rect['y'] + crop_rect['height']), 
-    #                  (0, 255, 255), 3)
-    #     
-    #     # Add text info
-    #     cv2.putText(debug_img, f"Angle: {angle:.1f}°", (10, 30), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    #     cv2.putText(debug_img, f"Hull points: {len(hull)}", (10, 70), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-    #     cv2.putText(debug_img, f"Rect: {width:.0f}x{height:.0f}", (10, 110), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    #     cv2.putText(debug_img, f"Crop: {crop_rect['width']}x{crop_rect['height']}", (10, 150), 
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-    #     
-    #     show_image(debug_img, "2_final_angle_detection_with_crop")
-    
-    Utils.log_info(f"Detected angle from largest bounding box: {angle:.1f}°")
-    Utils.log_info(f"Convex hull has {len(hull)} points")
-    Utils.log_info(f"Bounding rectangle: {width:.1f} x {height:.1f}")
+    Utils.log_info(f"Final detected angle using percentile-based method: {angle:.1f}°")
     Utils.log_info(f"Crop rectangle: {crop_rect}")
     
     return angle, crop_rect
@@ -390,7 +468,7 @@ def normalize_image_brightness(img):
         return cv_img
 
 
-def apply_calibration_to_image(img: Image, calibration_rect=None):
+def apply_calibration_to_image(img: Image, calibration_rect=None,padding_percent=0.005):
     # Show original image
     # if Utils.is_debug():
     #     cv_original = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -418,7 +496,13 @@ def apply_calibration_to_image(img: Image, calibration_rect=None):
         # Detect the angle using the blackest parts of the image (text/content)
         angle, crop_rect = detect_contour_angle(cv_img)
         Utils.log_info(f"Using blackest parts angle detection: {angle:.1f}°")
-    
+
+        # add padding to the crop_rect
+        crop_rect['x'] = crop_rect['x'] - padding_percent * crop_rect['width']
+        crop_rect['y'] = crop_rect['y'] - padding_percent * crop_rect['height']
+        crop_rect['width'] = crop_rect['width'] + 2 * padding_percent * crop_rect['width']
+        crop_rect['height'] = crop_rect['height'] + 2 * padding_percent * crop_rect['height']
+        
     # Get image dimensions
     height, width = cv_img.shape[:2]
     center = (width // 2, height // 2)
