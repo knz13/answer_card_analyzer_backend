@@ -10,9 +10,8 @@ import cv2
 from pdf2image import convert_from_bytes
 import json
 from find_circles import find_circles, find_circles_cv2
-from internal_calibrate import (
+from legacy_calibrate import (
     apply_calibration_to_image,
-    get_calibration_rect_for_image,
 )
 from fastapi import UploadFile
 
@@ -37,7 +36,7 @@ def get_poppler_path():
 
 
 async def read_to_images(file: UploadFile, needs_calibration=True, on_progress=None):
-    print("Reading data to images...")
+    Utils.log_info("Reading data to images...")
 
     # Read file bytes
     bytes_arr = await file.read()
@@ -109,14 +108,14 @@ async def read_to_images(file: UploadFile, needs_calibration=True, on_progress=N
             image.save(image_path)
 
             if needs_calibration:
-                calibration_rect = get_calibration_rect_for_image(image_path, img=image)
-                if calibration_rect is None:
-                    await on_progress(f"Calibration rect not found for image {i}, are you sure it is a valid gabarito?")
-                    continue
+                #calibration_rect = get_calibration_rect_for_image(image_path, img=image)
+                #if calibration_rect is None:
+                #    await on_progress(f"Calibration rect not found for image {i}, are you sure it is a valid gabarito?")
+                #    continue
                 if on_progress:
                     await on_progress(f"Applying calibration to image {i}")
 
-                img = apply_calibration_to_image(image, calibration_rect)
+                img = apply_calibration_to_image(image)
                 img, _alpha, _beta = Utils.automatic_brightness_and_contrast(img)
                 img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 

@@ -2,7 +2,7 @@ import cv2 as cv2
 import numpy as np
 from PIL import Image
 from pdf2image import convert_from_path
-from utils import Utils
+from utils import Utils,FlagNames
 
 
 def auto_crop_document(img, padding_percent=0.005):
@@ -41,16 +41,11 @@ def auto_crop_document(img, padding_percent=0.005):
     # if Utils.is_debug():
     #     show_image(blurred, "crop_3_blurred")
     
-    # Create binary threshold - anything not white becomes black
     # Use adaptive threshold to handle varying lighting conditions
     thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                    cv2.THRESH_BINARY_INV, 11, 10)
     
-    # Alternative: Simple threshold for high-contrast scans
-    #_, thresh = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY_INV)
     
-    # if Utils.is_debug():
-    #     show_image(thresh, "crop_4_threshold")
     
     # Find contours
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -139,7 +134,7 @@ def auto_crop_document(img, padding_percent=0.005):
     # Crop the original PIL image
     cropped_pil = original_pil.crop((x, y, x + w, y + h))
     
-    # Show the final cropped result
+
     cropped_cv = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
     # if Utils.is_debug():
     #     show_image(cropped_cv, "crop_9_final_cropped_result")
@@ -159,13 +154,20 @@ def detect_document_corners(img):
     else:
         cv_img = img
     
-    Utils.log_info("Attempting to detect document corners for perspective correction")
+    if Utils.get_image_show_flag(FlagNames.CornerDetection):
+        show_image(cv_img, "corners_0_original")
     
     # Convert to grayscale
     gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
     
+    if Utils.get_image_show_flag(FlagNames.CornerDetection):
+        show_image(gray, "corners_1_grayscale")
+    
     # Apply Gaussian blur
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    if Utils.get_image_show_flag(FlagNames.CornerDetection):
+        show_image(blurred, "corners_2_blurred")
     
     # Try multiple edge detection strategies
     edges_methods = [
@@ -181,9 +183,15 @@ def detect_document_corners(img):
         # Edge detection
         edges = cv2.Canny(blurred, method["params"]["low"], method["params"]["high"])
         
+        if Utils.get_image_show_flag(FlagNames.CornerDetection):
+            show_image(edges, f"corners_3_edges_{method['name']}")
+        
         # Apply morphological operations to close gaps
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        
+        if Utils.get_image_show_flag(FlagNames.CornerDetection):
+            show_image(edges, f"corners_4_morphology_{method['name']}")
         
         # Find contours
         contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
@@ -217,40 +225,54 @@ def detect_document_corners(img):
                 score = validate_document_corners(corners, cv_img.shape)
                 Utils.log_info(f"Found 4-point contour with score: {score:.3f}")
                 
-                if score > best_score and score > 0.5:  # Minimum quality threshold
+                if score > best_score and score > 0.7:  
                     best_corners = corners
                     best_score = score
                     Utils.log_info(f"New best corners found with score: {score:.3f}")
                     
-                    # if Utils.is_debug():
-                    #     debug_img = cv_img.copy()
-                    #     cv2.drawContours(debug_img, [approx], -1, (0, 255, 0), 3)
-                    #     for j, corner in enumerate(corners):
-                    #         cv2.circle(debug_img, tuple(corner), 10, (255, 0, 0), -1)
-                    #         cv2.putText(debug_img, str(j), tuple(corner + 15), 
-                    #                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-                    #     show_image(debug_img, f"corners_method_{method['name']}_contour_{i}")
+                    if Utils.get_image_show_flag(FlagNames.CornerDetection):
+                        debug_img = cv_img.copy()
+                        debug_img = cv2.cvtColor(debug_img, cv2.COLOR_BGR2RGB)
+                        cv2.drawContours(debug_img, [approx], -1, (0, 255, 0), 3)
+                        for j, corner in enumerate(corners):
+                            cv2.circle(debug_img, tuple(corner), 10, (255, 0, 0), -1)
+                            cv2.putText(debug_img, str(j), tuple(corner + 15), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+                        show_image(debug_img, f"corners_method_{method['name']}_contour_{i}")
                 
                 # If we found a very good match, no need to continue
                 if score > 0.9:
+                    Utils.log_info(f"Found a very good match, no need to continue | score: {score:.3f}")
                     break
         
         # If we found a very good match, no need to try other methods
         if best_score > 0.9:
+            Utils.log_info(f"Found a very good match, no need to continue | score: {best_score:.3f}")
             break
     
     if best_corners is not None:
         Utils.log_info(f"Final best corners detected with score: {best_score:.3f}")
+        if Utils.get_image_show_flag(FlagNames.FinalCorners):
+            debug_img = cv_img.copy()
+            cv2.drawContours(debug_img, [best_corners], -1, (0, 255, 0), 3)
+            for j, corner in enumerate(best_corners):
+                cv2.circle(debug_img, tuple(corner), 10, (255, 0, 0), -1)
+                cv2.putText(debug_img, str(j), tuple(corner + 15), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            show_image(debug_img, "corners_final_detected")
         return order_corners(best_corners)
     else:
         Utils.log_info("No valid document corners found")
         return None
+
+    
 
 
 def validate_document_corners(corners, img_shape):
     """
     Validate detected corners to ensure they form a reasonable document rectangle.
     Returns a score between 0 and 1 (higher is better).
+    Enhanced with stricter validation to prevent false positives.
     """
     if len(corners) != 4:
         return 0
@@ -260,7 +282,7 @@ def validate_document_corners(corners, img_shape):
     
     # Check if corners are within image bounds
     if np.all(corners >= 0) and np.all(corners[:, 0] < w) and np.all(corners[:, 1] < h):
-        score += 0.2
+        score += 0.15  # Reduced weight
     else:
         return 0  # Invalid if any corner is outside image
     
@@ -269,9 +291,12 @@ def validate_document_corners(corners, img_shape):
     img_area = w * h
     area_ratio = area / img_area
     
-    # Area should be reasonable (between 10% and 95% of image)
-    if 0.1 <= area_ratio <= 0.95:
-        score += 0.3 * min(area_ratio / 0.5, (1 - area_ratio) / 0.05)
+    # Much stricter area requirements - should be substantial portion of image
+    if 0.3 <= area_ratio <= 0.95:  # At least 30% of image
+        score += 0.25 * min(area_ratio / 0.7, (1 - area_ratio) / 0.05)
+    elif area_ratio < 0.3:
+        Utils.log_info(f"Corner area too small: {area_ratio:.3f} (need >= 0.3)")
+        return 0  # Reject small areas completely
     
     # Check if the quadrilateral is approximately rectangular
     # Calculate all side lengths
@@ -282,13 +307,18 @@ def validate_document_corners(corners, img_shape):
         p2 = ordered[(i + 1) % 4]
         sides.append(np.linalg.norm(p2 - p1))
     
-    # Opposite sides should be similar
+    # Opposite sides should be similar - stricter requirement
     top_bottom_ratio = min(sides[0], sides[2]) / max(sides[0], sides[2])
     left_right_ratio = min(sides[1], sides[3]) / max(sides[1], sides[3])
     
+    # Require at least 70% similarity for opposite sides
+    if top_bottom_ratio < 0.7 or left_right_ratio < 0.7:
+        Utils.log_info(f"Sides not rectangular enough: TB={top_bottom_ratio:.3f}, LR={left_right_ratio:.3f}")
+        return 0
+    
     score += 0.25 * (top_bottom_ratio + left_right_ratio) / 2
     
-    # Check angles (should be close to 90 degrees for a rectangle)
+    # Check angles (should be close to 90 degrees) - stricter requirements
     angles = []
     for i in range(4):
         p1 = ordered[(i - 1) % 4]
@@ -300,11 +330,35 @@ def validate_document_corners(corners, img_shape):
         
         cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
         angle = np.arccos(np.clip(cos_angle, -1, 1))
-        angles.append(abs(angle - np.pi/2))  # Deviation from 90 degrees
+        angle_deg = np.degrees(angle)
+        angles.append(abs(angle_deg - 90))  # Deviation from 90 degrees in degrees
     
     avg_angle_deviation = np.mean(angles)
-    angle_score = max(0, 1 - (avg_angle_deviation / (np.pi/4)))  # Normalize to 0-1
-    score += 0.25 * angle_score
+    max_angle_deviation = np.max(angles)
+    
+    # Stricter angle requirements
+    if avg_angle_deviation > 25 or max_angle_deviation > 40:  # Max 25° average, 40° individual deviation
+        Utils.log_info(f"Angles not rectangular: avg={avg_angle_deviation:.1f}°, max={max_angle_deviation:.1f}°")
+        return 0
+    
+    angle_score = max(0, 1 - (avg_angle_deviation / 25))  # Normalize to 0-1
+    score += 0.2 * angle_score
+    
+    # Add aspect ratio check - documents typically have reasonable aspect ratios
+    width_estimate = (sides[0] + sides[2]) / 2
+    height_estimate = (sides[1] + sides[3]) / 2
+    aspect_ratio = max(width_estimate, height_estimate) / min(width_estimate, height_estimate)
+    
+    # Reasonable aspect ratio (1:1 to 3:1)
+    if aspect_ratio <= 3.0:
+        aspect_score = max(0, 1 - (aspect_ratio - 1) / 2)  # Best score at 1:1, decreasing to 3:1
+        score += 0.15 * aspect_score
+    else:
+        Utils.log_info(f"Aspect ratio too extreme: {aspect_ratio:.2f}")
+        return 0
+    
+    Utils.log_info(f"Corner validation details: area={area_ratio:.3f}, TB={top_bottom_ratio:.3f}, "
+                   f"LR={left_right_ratio:.3f}, angles={avg_angle_deviation:.1f}°, aspect={aspect_ratio:.2f}")
     
     return score
 
@@ -615,7 +669,7 @@ def normalize_image_brightness(img):
         return cv_img
 
 
-def apply_calibration_to_image(img: Image, calibration_rect=None, padding_percent=0.005):
+def apply_calibration_to_image(img: Image, padding_percent=0.005):
     # Show original image
     # if Utils.is_debug():
     #     cv_original = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -632,38 +686,25 @@ def apply_calibration_to_image(img: Image, calibration_rect=None, padding_percen
     
     # Convert PIL Image to OpenCV format
     cv_img = cv2.cvtColor(np.array(normalized_img), cv2.COLOR_RGB2BGR)
+
+
+    # Detect both rotation and perspective/shear distortion
+    transform_info = detect_shear_and_perspective(cv_img)
     
-    # Use angle from calibration_rect if provided, otherwise detect it
-    if False:
-        # Extract angle from calibration_rect tuple: (center, (width, height), angle)
-        angle = calibration_rect[2]
-        crop_rect = None  # When using provided calibration_rect, we don't have crop info
-        Utils.log_info(f"Using provided angle from calibration_rect: {angle:.1f}°")
-        
-        # Create transform info for legacy compatibility
-        transform_info = {
-            'type': 'rotation',
-            'angle': angle,
-            'crop_rect': None
-        }
+    if transform_info['type'] == 'perspective':
+        Utils.log_info(f"Using perspective correction (distortion: {transform_info['distortion_score']:.3f})")
     else:
-        # Detect both rotation and perspective/shear distortion
-        transform_info = detect_shear_and_perspective(cv_img)
+        method = transform_info.get('method', 'unknown')
+        Utils.log_info(f"Using rotation correction ({transform_info['angle']:.1f}°) via {method}")
         
-        if transform_info['type'] == 'perspective':
-            Utils.log_info(f"Using perspective correction (distortion: {transform_info['distortion_score']:.3f})")
-        else:
-            method = transform_info.get('method', 'unknown')
-            Utils.log_info(f"Using rotation correction ({transform_info['angle']:.1f}°) via {method}")
-            
-            # Add padding to the crop_rect for rotation-only correction
-            if transform_info['crop_rect'] is not None:
-                crop_rect = transform_info['crop_rect']
-                crop_rect['x'] = crop_rect['x'] - padding_percent * crop_rect['width']
-                crop_rect['y'] = crop_rect['y'] - padding_percent * crop_rect['height']
-                crop_rect['width'] = crop_rect['width'] + 2 * padding_percent * crop_rect['width']
-                crop_rect['height'] = crop_rect['height'] + 2 * padding_percent * crop_rect['height']
-                transform_info['crop_rect'] = crop_rect
+        # Add padding to the crop_rect for rotation-only correction
+        if transform_info['crop_rect'] is not None:
+            crop_rect = transform_info['crop_rect']
+            crop_rect['x'] = crop_rect['x'] - padding_percent * crop_rect['width']
+            crop_rect['y'] = crop_rect['y'] - padding_percent * crop_rect['height']
+            crop_rect['width'] = crop_rect['width'] + 2 * padding_percent * crop_rect['width']
+            crop_rect['height'] = crop_rect['height'] + 2 * padding_percent * crop_rect['height']
+            transform_info['crop_rect'] = crop_rect
     
     # Apply the appropriate transformation (rotation or perspective)
     if transform_info['type'] == 'perspective':
@@ -813,9 +854,9 @@ def detect_shear_and_perspective(img):
         
         Utils.log_info(f"Perspective distortion score: {perspective_score:.3f}")
         
-        if perspective_score > 0.05:  # Significant distortion threshold
+        if perspective_score > 0.15: 
             Utils.log_info("Significant perspective distortion detected, will use perspective correction")
-            
+        
             # Calculate transformation matrix for perspective correction
             # Create target rectangle with some padding
             padding = min(w, h) * 0.02
@@ -835,6 +876,8 @@ def detect_shear_and_perspective(img):
                 'target_corners': target_corners,
                 'distortion_score': perspective_score
             }
+        else:
+            Utils.log_info(f"Distortion score {perspective_score:.3f} below threshold 0.15, skipping perspective correction")
     
     # If no significant perspective distortion, try Hough line skew detection
     Utils.log_info("No significant perspective distortion, trying Hough line skew detection")
@@ -846,26 +889,45 @@ def detect_shear_and_perspective(img):
         # For simple skew correction, we'll use rotation
         angle, crop_rect = hough_angle, None
         
-        # Try to get crop rectangle from contour detection
-        _, crop_rect = detect_contour_angle(cv_img)
+        # Try to get crop rectangle from fallback contour detection
+        fallback_result, fallback_crop, fallback_method = detect_angle_with_fallback(cv_img)
+        
+        # Use the crop rectangle from fallback (ignore angle since we use Hough angle)
+        if not isinstance(fallback_result, dict):  # It's a rotation result
+            crop_rect = fallback_crop
+        # If fallback returned perspective, we still use Hough angle but with no crop
         
         return {
             'type': 'rotation',
             'angle': angle,
             'crop_rect': crop_rect,
-            'method': 'hough_lines'
+            'method': f'hough_lines_with_fallback_crop_{fallback_method}'
         }
     
-    # Fallback to contour-based rotation detection
-    Utils.log_info("No significant skew from Hough lines, using contour-based rotation detection")
-    angle, crop_rect = detect_contour_angle(cv_img)
+    # Fallback to contour-based rotation detection with fallback
+    Utils.log_info("No significant skew from Hough lines, using contour-based rotation detection with fallback")
+    result, crop_rect, method_used = detect_angle_with_fallback(cv_img)
     
-    return {
-        'type': 'rotation',
-        'angle': angle,
-        'crop_rect': crop_rect,
-        'method': 'contour_analysis'
-    }
+    # Check if fallback returned perspective correction
+    if isinstance(result, dict) and result.get('type') == 'perspective':
+        Utils.log_info("Fallback method detected perspective distortion")
+        return {
+            'type': 'perspective',
+            'matrix': result['matrix'],
+            'corners': result['corners'],
+            'target_corners': result['target_corners'],
+            'distortion_score': result['distortion_score'],
+            'method': f'legacy_hull_perspective_{method_used}'
+        }
+    else:
+        # Regular rotation result
+        angle = result
+        return {
+            'type': 'rotation',
+            'angle': angle,
+            'crop_rect': crop_rect,
+            'method': f'contour_analysis_with_fallback_{method_used}'
+        }
 
 
 def calculate_perspective_distortion(detected_corners, ideal_corners):
@@ -907,6 +969,7 @@ def apply_perspective_correction(img, transform_info):
                                       flags=cv2.INTER_CUBIC,
                                       borderMode=cv2.BORDER_CONSTANT,
                                       borderValue=(255, 255, 255))
+        
         
         # if Utils.is_debug():
         #     # Show the transformation
@@ -1046,6 +1109,646 @@ def detect_hough_line_skew(img):
     
     return final_angle
 
+def detect_contour_angle_legacy(img):
+    """
+    Legacy method enhanced: Detect rotation angle and potential shear using convex hull.
+    This focuses on text/content rather than document edges using convex hull.
+    Can also detect perspective distortion if the hull forms a document-like quadrilateral.
+    Now tries various parameters and uses the average of all valid results.
+    Returns angle/perspective info and bounding rectangle.
+    """
+    # Convert PIL Image to OpenCV format if needed
+    if isinstance(img, Image.Image):
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    else:
+        cv_img = img
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        show_image(cv_img, "legacy_0_original")
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        show_image(gray, "legacy_1_grayscale")
+    
+    # Define parameter combinations to try
+    parameter_sets = [
+        # (blur_kernel, threshold, morph_kernel, description)
+        ((3, 3), 50, (3, 3), "default_aggressive"),
+        ((5, 5), 50, (3, 3), "more_blur_aggressive"), 
+        ((3, 3), 70, (3, 3), "default_moderate"),
+        ((5, 5), 70, (3, 3), "more_blur_moderate"),
+        ((3, 3), 40, (5, 5), "very_aggressive_larger_morph"),
+        ((7, 7), 60, (3, 3), "heavy_blur_balanced"),
+        ((3, 3), 80, (2, 2), "conservative_small_morph"),
+        ((5, 5), 45, (4, 4), "balanced_medium_morph"),
+        ((3, 3), 55, (6, 6), "default_large_morph"),
+        ((9, 9), 65, (3, 3), "maximum_blur_moderate")
+    ]
+    
+    valid_results = []
+    perspective_results = []
+    
+    Utils.log_info(f"Legacy method: Trying {len(parameter_sets)} parameter combinations")
+    
+    for i, (blur_kernel, threshold, morph_kernel, description) in enumerate(parameter_sets):
+        Utils.log_info(f"Testing parameter set {i+1}/{len(parameter_sets)}: {description}")
+        Utils.log_info(f"  Blur: {blur_kernel}, Threshold: {threshold}, Morph: {morph_kernel}")
+        
+        try:
+            result = _detect_with_parameters(cv_img, gray, blur_kernel, threshold, morph_kernel, description)
+            
+            if result is not None:
+                score = _score_detection_result(result, cv_img.shape)
+                result['score'] = score
+                Utils.log_info(f"  Result score: {score:.3f}")
+                
+                if result['type'] == 'perspective':
+                    perspective_results.append(result)
+                    Utils.log_info(f"  Added perspective result (distortion: {result['distortion_score']:.3f})")
+                else:
+                    valid_results.append(result)
+                    Utils.log_info(f"  Added rotation result (angle: {result['angle']:.2f}°)")
+            else:
+                Utils.log_info(f"  No valid result for this parameter set")
+                
+        except Exception as e:
+            Utils.log_info(f"  Parameter set failed: {e}")
+            continue
+    
+    # Handle perspective results - if we have any high-quality perspective results, prefer them
+    if perspective_results:
+        # Filter perspective results by quality
+        good_perspective = [r for r in perspective_results if r['score'] > 0.6 and r['distortion_score'] > 0.15]
+        
+        if good_perspective:
+            Utils.log_info(f"Found {len(good_perspective)} high-quality perspective results")
+            # Use the best perspective result
+            best_perspective = max(good_perspective, key=lambda x: x['score'])
+            Utils.log_info(f"Using best perspective result with score {best_perspective['score']:.3f}")
+            return best_perspective
+    
+    # If no good perspective results, use rotation results
+    if not valid_results:
+        Utils.log_info("Legacy method: No valid rotation results found, returning default")
+        return {'type': 'rotation', 'angle': 0, 'crop_rect': None}
+    
+    Utils.log_info(f"Legacy method: Averaging {len(valid_results)} valid rotation results")
+    
+    # Calculate weighted averages of angles and crop rectangles
+    total_weight = sum(r['score'] for r in valid_results)
+    
+    if total_weight == 0:
+        # If all scores are 0, use simple average
+        Utils.log_info("All scores are 0, using simple average")
+        weights = [1.0 / len(valid_results)] * len(valid_results)
+    else:
+        # Use score-based weighting
+        weights = [r['score'] / total_weight for r in valid_results]
+        Utils.log_info(f"Using weighted average (weights: {[f'{w:.3f}' for w in weights]})")
+    
+    # Calculate weighted average angle
+    angles = [r['angle'] for r in valid_results]
+    weighted_angle = sum(angle * weight for angle, weight in zip(angles, weights))
+    
+    # Calculate average crop rectangle
+    crop_rects = [r['crop_rect'] for r in valid_results if r['crop_rect'] is not None]
+    
+    if crop_rects:
+        # Calculate weighted average of crop rectangle bounds
+        valid_crop_weights = []
+        valid_crop_rects = []
+        
+        for i, result in enumerate(valid_results):
+            if result['crop_rect'] is not None:
+                valid_crop_weights.append(weights[i])
+                valid_crop_rects.append(result['crop_rect'])
+        
+        # Normalize weights for crop rectangles
+        crop_weight_sum = sum(valid_crop_weights)
+        if crop_weight_sum > 0:
+            normalized_crop_weights = [w / crop_weight_sum for w in valid_crop_weights]
+        else:
+            normalized_crop_weights = [1.0 / len(valid_crop_rects)] * len(valid_crop_rects)
+        
+        # Calculate weighted average bounds
+        avg_x = sum(rect['x'] * weight for rect, weight in zip(valid_crop_rects, normalized_crop_weights))
+        avg_y = sum(rect['y'] * weight for rect, weight in zip(valid_crop_rects, normalized_crop_weights))
+        avg_x2 = sum((rect['x'] + rect['width']) * weight for rect, weight in zip(valid_crop_rects, normalized_crop_weights))
+        avg_y2 = sum((rect['y'] + rect['height']) * weight for rect, weight in zip(valid_crop_rects, normalized_crop_weights))
+        
+        avg_crop_rect = {
+            'x': int(avg_x),
+            'y': int(avg_y),
+            'width': int(avg_x2 - avg_x),
+            'height': int(avg_y2 - avg_y)
+        }
+        
+        Utils.log_info(f"Averaged crop rectangle: {avg_crop_rect}")
+    else:
+        avg_crop_rect = None
+        Utils.log_info("No crop rectangles to average")
+    
+    # Calculate some statistics for logging
+    angle_std = np.std(angles) if len(angles) > 1 else 0
+    angle_range = max(angles) - min(angles) if len(angles) > 1 else 0
+    
+    Utils.log_info(f"Angle statistics: mean={weighted_angle:.2f}°, std={angle_std:.2f}°, range={angle_range:.2f}°")
+    Utils.log_info(f"Individual angles: {[f'{a:.2f}°' for a in angles]}")
+    Utils.log_info(f"Individual scores: {[f'{r['score']:.3f}' for r in valid_results]}")
+    
+    # Create final result
+    final_result = {
+        'type': 'rotation',
+        'angle': weighted_angle,
+        'crop_rect': avg_crop_rect,
+        'method': 'averaged_legacy',
+        'num_results_averaged': len(valid_results),
+        'angle_std': angle_std,
+        'angle_range': angle_range,
+        'individual_angles': angles,
+        'individual_scores': [r['score'] for r in valid_results]
+    }
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        # Show the averaged result visualization
+        debug_img = cv_img.copy()
+        if avg_crop_rect:
+            cv2.rectangle(debug_img, 
+                         (avg_crop_rect['x'], avg_crop_rect['y']),
+                         (avg_crop_rect['x'] + avg_crop_rect['width'], 
+                          avg_crop_rect['y'] + avg_crop_rect['height']),
+                         (255, 0, 0), 2)
+        
+        cv2.putText(debug_img, f"Averaged Result ({len(valid_results)} methods)", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(debug_img, f"Angle: {weighted_angle:.1f}° (±{angle_std:.1f}°)", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        cv2.putText(debug_img, f"Range: {angle_range:.1f}°", (10, 90),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        
+        show_image(debug_img, "legacy_averaged_result")
+    
+    Utils.log_info(f"Legacy method: Final averaged angle: {weighted_angle:.2f}° (from {len(valid_results)} results)")
+    
+    return final_result
+
+def _detect_with_parameters(cv_img, gray, blur_kernel, threshold, morph_kernel, description):
+    """
+    Helper function to run detection with specific parameters.
+    """
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, blur_kernel, 0)
+    
+    # Create threshold to get text/content
+    _, thresh = cv2.threshold(blurred, threshold, 255, cv2.THRESH_BINARY_INV)
+    
+    # Apply morphological operations to connect nearby text
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, morph_kernel)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        show_image(thresh, "legacy_threshold_result")
+    
+    # Find all black pixels (text/content pixels)
+    black_pixels = np.column_stack(np.where(thresh > 0))
+    
+    if len(black_pixels) == 0:
+        Utils.log_info(f"  No black pixels found with {description}")
+        return None
+    
+    # Convert to (x, y) format for convex hull
+    black_pixels_xy = np.array([(pt[1], pt[0]) for pt in black_pixels], dtype=np.int32)
+    
+    # Find the convex hull of all black pixels
+    hull = cv2.convexHull(black_pixels_xy)
+    
+    if len(hull) < 3:
+        Utils.log_info(f"  Insufficient hull points with {description}")
+        return None
+    
+    Utils.log_info(f"  Found {len(black_pixels)} pixels, hull has {len(hull)} points")
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        hull_img = cv_img.copy()
+        cv2.drawContours(hull_img, [hull], -1, (0, 255, 0), 2)
+        show_image(hull_img, "legacy_hull_result")
+    
+    # Check if the hull can represent a document boundary (perspective correction)
+    perspective_info = analyze_hull_for_perspective(hull, cv_img.shape)
+    
+    if perspective_info is not None:
+        Utils.log_info(f"  Detected perspective distortion (score: {perspective_info['distortion_score']:.3f})")
+        perspective_info['parameter_set'] = description
+        perspective_info['pixel_count'] = len(black_pixels)
+        perspective_info['hull_points'] = len(hull)
+        return perspective_info
+    
+    # Fall back to rotation-only analysis
+    # Get the minimum area rectangle that fits the convex hull
+    rect = cv2.boundingRect(hull)
+    
+    # Extract the angle from the rectangle
+    angle = rect[2]
+    
+    # Get the dimensions of the rectangle
+    width, height = rect[1]
+    
+    # Adjust angle based on rectangle orientation
+    if width > height:
+        # Landscape orientation
+        if angle < -45:
+            angle = 90 + angle
+    else:
+        # Portrait orientation  
+        if angle < -45:
+            angle = 90 + angle
+        else:
+            angle = angle
+    
+    # Limit the angle to reasonable rotation range
+    if abs(angle) > 45:
+        if angle > 0:
+            angle = angle - 90
+        else:
+            angle = angle + 90
+    
+    # Get the bounding rectangle coordinates
+    box = cv2.boxPoints(rect)
+    box = np.int32(box)
+    
+    if Utils.get_image_show_flag(FlagNames.LegacyAngleDetection):
+        rect_img = cv_img.copy()
+        cv2.drawContours(rect_img, [box], -1, (0, 0, 255), 2)
+        cv2.putText(rect_img, f"Angle: {angle:.1f}°", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        show_image(rect_img, "legacy_rect_result")
+    
+    # Get the axis-aligned bounding rectangle for cropping
+    x_coords = box[:, 0]
+    y_coords = box[:, 1]
+    x_min, x_max = np.min(x_coords), np.max(x_coords)
+    y_min, y_max = np.min(y_coords), np.max(y_coords)
+    
+    # Add some padding (2% of image dimensions)
+    img_height, img_width = cv_img.shape[:2]
+    padding_x = int(img_width * 0.02)
+    padding_y = int(img_height * 0.02)
+    
+    # Apply padding but keep within image bounds
+    crop_rect = {
+        'x': max(0, x_min - padding_x),
+        'y': max(0, y_min - padding_y),
+        'width': min(img_width - max(0, x_min - padding_x), (x_max - x_min) + 2 * padding_x),
+        'height': min(img_height - max(0, y_min - padding_y), (y_max - y_min) + 2 * padding_y)
+    }
+    
+    Utils.log_info(f"  Detected angle: {angle:.1f}°, rect: {width:.1f}x{height:.1f}")
+    
+    return {
+        'type': 'rotation', 
+        'angle': angle, 
+        'crop_rect': crop_rect,
+        'parameter_set': description,
+        'pixel_count': len(black_pixels),
+        'hull_points': len(hull),
+        'rect_dimensions': (width, height)
+    }
+
+
+def _score_detection_result(result, img_shape):
+    """
+    Score a detection result to determine quality.
+    Higher score is better.
+    """
+    if result is None:
+        return 0
+    
+    h, w = img_shape[:2]
+    img_area = w * h
+    score = 0
+    
+    # Base score for having a result
+    score += 0.1
+    
+    # Score based on pixel count (more content pixels generally better)
+    pixel_count = result.get('pixel_count', 0)
+    pixel_ratio = pixel_count / img_area
+    
+    # Optimal pixel ratio is around 10-30% of image
+    if 0.05 <= pixel_ratio <= 0.4:
+        pixel_score = min(pixel_ratio / 0.2, (0.4 - pixel_ratio) / 0.2)
+        score += 0.3 * pixel_score
+    elif pixel_ratio < 0.05:
+        score += 0.1 * (pixel_ratio / 0.05)  # Too few pixels
+    # Too many pixels gets no bonus
+    
+    # Score based on result type and quality
+    if result['type'] == 'perspective':
+        # Perspective correction results
+        distortion_score = result.get('distortion_score', 0)
+        corner_score = result.get('corner_score', 0)
+        
+        # Prefer moderate distortion (not too little, not too much)
+        if 0.15 <= distortion_score <= 0.5:
+            score += 0.4 * min((distortion_score - 0.15) / 0.1, (0.5 - distortion_score) / 0.35)
+        elif distortion_score > 0.5:
+            score += 0.2  # Very distorted, but still valid
+        
+        # Corner quality bonus
+        score += 0.2 * corner_score
+        
+    else:
+        # Rotation results
+        angle = abs(result.get('angle', 0))
+        
+        # Score based on angle reasonableness
+        angle_reasonableness = get_angle_reasonableness_score(angle)
+        score += 0.3 * angle_reasonableness
+        
+        # Crop rectangle quality
+        crop_rect = result.get('crop_rect')
+        if crop_rect:
+            crop_area = crop_rect['width'] * crop_rect['height']
+            crop_ratio = crop_area / img_area
+            
+            # Prefer crop rectangles that cover substantial portion of image
+            if 0.3 <= crop_ratio <= 0.9:
+                crop_score = min(crop_ratio / 0.6, (0.9 - crop_ratio) / 0.3)
+                score += 0.2 * crop_score
+        
+        # Rectangle dimensions quality
+        rect_dims = result.get('rect_dimensions')
+        if rect_dims:
+            width, height = rect_dims
+            aspect_ratio = max(width, height) / (min(width, height) + 1e-6)
+            
+            # Reasonable aspect ratios (1:1 to 4:1)
+            if 1 <= aspect_ratio <= 4:
+                aspect_score = max(0, 1 - (aspect_ratio - 1) / 3)
+                score += 0.1 * aspect_score
+    
+    # Hull quality bonus
+    hull_points = result.get('hull_points', 0)
+    if 4 <= hull_points <= 20:  # Good number of hull points
+        hull_score = min(hull_points / 8, (20 - hull_points) / 16)
+        score += 0.1 * hull_score
+    
+    return min(score, 1.0)  # Cap at 1.0
+
+
+def analyze_hull_for_perspective(hull, img_shape):
+    """
+    Analyze the convex hull to see if it represents a perspective-distorted document.
+    Returns perspective correction info if applicable, None otherwise.
+    """
+    # We need at least 4 points to form a quadrilateral
+    if len(hull) < 4:
+        return None
+    
+    h, w = img_shape[:2]
+    hull_points = hull.reshape(-1, 2)
+    
+    # Try to find the 4 dominant corners of the hull that could represent document corners
+    document_corners = find_document_corners_from_hull(hull_points, (w, h))
+    
+    if document_corners is None:
+        return None
+    
+    # Validate if these corners form a reasonable document shape
+    corner_score = validate_document_corners(document_corners, img_shape)
+    
+    if corner_score < 0.6:  # Increased threshold for hull-based detection
+        Utils.log_info(f"Legacy method: Hull corners score too low: {corner_score:.3f}")
+        return None
+    
+    # Calculate distortion score
+    ideal_corners = np.array([
+        [0, 0],
+        [w, 0], 
+        [w, h],
+        [0, h]
+    ], dtype=np.float32)
+    
+    distortion_score = calculate_perspective_distortion(document_corners, ideal_corners)
+    
+    # Only use perspective correction if distortion is significant - more conservative
+    if distortion_score < 0.15:  # Increased threshold to match main detection
+        Utils.log_info(f"Legacy method: Distortion not significant enough: {distortion_score:.3f}")
+        return None
+    
+    
+    # Create perspective transformation
+    padding = min(w, h) * 0.02
+    target_corners = np.array([
+        [padding, padding],
+        [w - padding, padding],
+        [w - padding, h - padding],
+        [padding, h - padding]
+    ], dtype=np.float32)
+    
+    transform_matrix = cv2.getPerspectiveTransform(document_corners, target_corners)
+    
+    return {
+        'type': 'perspective',
+        'matrix': transform_matrix,
+        'corners': document_corners,
+        'target_corners': target_corners,
+        'distortion_score': distortion_score,
+        'corner_score': corner_score
+    }
+
+
+def find_document_corners_from_hull(hull_points, img_size):
+    """
+    Find 4 corners from convex hull points that best represent document boundaries.
+    """
+    w, h = img_size
+    
+    # If hull has exactly 4 points, use them
+    if len(hull_points) == 4:
+        return order_corners(hull_points.astype(np.float32))
+    
+    # If hull has more points, find the 4 most corner-like points
+    if len(hull_points) > 4:
+        return find_best_4_corners(hull_points, img_size)
+    
+    return None
+
+
+def find_best_4_corners(hull_points, img_size):
+    """
+    From a set of hull points, find the 4 that best represent document corners.
+    """
+    w, h = img_size
+    
+    # Calculate angles at each hull point to find corners
+    corner_scores = []
+    n_points = len(hull_points)
+    
+    for i in range(n_points):
+        prev_pt = hull_points[(i - 1) % n_points]
+        curr_pt = hull_points[i]
+        next_pt = hull_points[(i + 1) % n_points]
+        
+        # Calculate vectors
+        v1 = prev_pt - curr_pt
+        v2 = next_pt - curr_pt
+        
+        # Calculate angle
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+        angle = np.arccos(np.clip(cos_angle, -1, 1))
+        
+        # Score based on how close to 90 degrees and position
+        angle_score = abs(angle - np.pi/2)  # Lower is better (closer to 90°)
+        
+        # Bonus for being near image corners
+        corner_distance = min(
+            np.linalg.norm(curr_pt - [0, 0]),      # top-left
+            np.linalg.norm(curr_pt - [w, 0]),      # top-right  
+            np.linalg.norm(curr_pt - [w, h]),      # bottom-right
+            np.linalg.norm(curr_pt - [0, h])       # bottom-left
+        )
+        position_score = corner_distance / max(w, h)  # Normalize
+        
+        # Combined score (lower is better)
+        total_score = angle_score + position_score * 0.5
+        corner_scores.append((total_score, i, curr_pt))
+    
+    # Sort by score and take best 4
+    corner_scores.sort(key=lambda x: x[0])
+    best_4_indices = [score[1] for score in corner_scores[:4]]
+    best_4_points = np.array([hull_points[i] for i in sorted(best_4_indices)])
+    
+    # Verify we have a reasonable quadrilateral
+    if len(best_4_points) == 4:
+        return order_corners(best_4_points.astype(np.float32))
+    
+    return None
+
+def detect_angle_with_fallback(img):
+    """
+    Detect rotation angle using multiple methods and choose the best result.
+    Compares percentile-based method with legacy convex hull method.
+    Both methods can now return either rotation or perspective correction.
+    """
+    # Convert PIL Image to OpenCV format if needed
+    if isinstance(img, Image.Image):
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    else:
+        cv_img = img
+    
+    Utils.log_info("Running angle detection with fallback comparison")
+    
+    # Method 1: New percentile-based method (rotation only for now)
+    try:
+        percentile_angle, percentile_crop = detect_contour_angle(cv_img)
+        percentile_result = {'type': 'rotation', 'angle': percentile_angle, 'crop_rect': percentile_crop}
+        percentile_success = True
+        Utils.log_info(f"Percentile method result: {percentile_angle:.2f}° (rotation)")
+    except Exception as e:
+        Utils.log_info(f"Percentile method failed: {e}")
+        percentile_result = {'type': 'rotation', 'angle': 0, 'crop_rect': None}
+        percentile_success = False
+    
+    # Method 2: Enhanced legacy convex hull method (can return rotation or perspective)
+    try:
+        legacy_result = detect_contour_angle_legacy(cv_img)
+        legacy_success = True
+        if legacy_result['type'] == 'perspective':
+            Utils.log_info(f"Legacy method result: perspective correction (distortion: {legacy_result['distortion_score']:.3f})")
+        else:
+            Utils.log_info(f"Legacy method result: {legacy_result['angle']:.2f}° (rotation)")
+    except Exception as e:
+        Utils.log_info(f"Legacy method failed: {e}")
+        legacy_result = {'type': 'rotation', 'angle': 0, 'crop_rect': None}
+        legacy_success = False
+    
+    # If only one method succeeded, use that one
+    if percentile_success and not legacy_success:
+        Utils.log_info("Only percentile method succeeded, using its result")
+        return percentile_result['angle'], percentile_result['crop_rect'], 'percentile_only'
+    elif legacy_success and not percentile_success:
+        Utils.log_info("Only legacy method succeeded, using its result")
+        if legacy_result['type'] == 'perspective':
+            # Return the perspective info in a special format for the caller to handle
+            return legacy_result, None, 'legacy_perspective_only'
+        else:
+            return legacy_result['angle'], legacy_result['crop_rect'], 'legacy_only'
+    elif not percentile_success and not legacy_success:
+        Utils.log_info("Both methods failed, returning 0 angle")
+        return 0, None, 'both_failed'
+    
+    # Both methods succeeded, handle comparison
+    if legacy_result['type'] == 'perspective':
+        # If legacy detected perspective distortion, prefer it over simple rotation
+        Utils.log_info("Legacy method detected perspective distortion, preferring perspective correction")
+        return legacy_result, None, 'legacy_perspective_preferred'
+    
+    # Both are rotation methods, compare angles
+    percentile_angle = percentile_result['angle']
+    legacy_angle = legacy_result['angle']
+    
+    angle_difference = abs(percentile_angle - legacy_angle)
+    Utils.log_info(f"Angle difference between methods: {angle_difference:.2f}°")
+    
+    # Define threshold for "significantly different"
+    significant_difference_threshold = 2.0  # degrees
+    
+    if angle_difference <= significant_difference_threshold:
+        # Results are similar, choose based on reliability criteria
+        Utils.log_info(f"Methods agree (diff: {angle_difference:.2f}°), choosing based on reliability")
+        
+        # Prefer the method that detected a more reasonable angle (closer to common document skew)
+        percentile_reasonableness = get_angle_reasonableness_score(percentile_angle)
+        legacy_reasonableness = get_angle_reasonableness_score(legacy_angle)
+        
+        Utils.log_info(f"Percentile reasonableness: {percentile_reasonableness:.3f}, Legacy reasonableness: {legacy_reasonableness:.3f}")
+        
+        if percentile_reasonableness >= legacy_reasonableness:
+            Utils.log_info("Using percentile method (similar results, better reasonableness)")
+            return percentile_angle, percentile_result['crop_rect'], 'percentile_preferred'
+        else:
+            Utils.log_info("Using legacy method (similar results, better reasonableness)")
+            return legacy_angle, legacy_result['crop_rect'], 'legacy_preferred'
+    else:
+        # Results are significantly different, choose the older method
+        Utils.log_info(f"Methods disagree significantly (diff: {angle_difference:.2f}°), using older method")
+        return legacy_angle, legacy_result['crop_rect'], 'legacy_chosen_on_disagreement'
+
+
+def get_angle_reasonableness_score(angle):
+    """
+    Score how reasonable an angle is for document rotation.
+    Higher score = more reasonable.
+    """
+    abs_angle = abs(angle)
+    
+    # Perfect angles get highest score
+    if abs_angle < 0.5:
+        return 1.0  # No rotation needed
+    
+    # Small angles are very reasonable
+    if abs_angle <= 5:
+        return 0.9
+    
+    # Medium angles are somewhat reasonable
+    if abs_angle <= 15:
+        return 0.7
+    
+    # Large angles are less reasonable but possible
+    if abs_angle <= 30:
+        return 0.5
+    
+    # Very large angles are suspicious
+    if abs_angle <= 45:
+        return 0.3
+    
+    # Extremely large angles are likely errors
+    return 0.1
+
+
 if __name__ == "__main__":
     images = convert_from_path("examples/target_examples/Marianna Dias.pdf")
     image = images[0]
@@ -1054,8 +1757,7 @@ if __name__ == "__main__":
     cropped_image = auto_crop_document(image)
     
     # Test the new text-based angle detection
-    rect = get_calibration_rect_for_image(None, img=cropped_image)
-    rotated_image = apply_calibration_to_image(image, rect)
+    rotated_image = apply_calibration_to_image(image)
     
     # Display result
     cv_result = cv2.cvtColor(np.array(rotated_image), cv2.COLOR_RGB2BGR)

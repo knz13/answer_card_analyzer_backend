@@ -17,7 +17,7 @@ from find_circles import find_circles_cv2, find_circles_fallback
 from read_to_images import read_to_images
 from websocket_types import BoxRectangleType, WebsocketMessageCommand, WebsocketMessageStatus
 from copy import deepcopy
-from utils import Utils
+from utils import FlagNames, Utils
 from websockets.asyncio.client import connect
 import psutil
 import os
@@ -464,6 +464,12 @@ if __name__ == "__main__":
     # Load and apply configuration
     if config.is_debug_mode():
         config.print_config_summary()
-    
+
+    #Utils.set_image_show_flag(FlagNames.CornerDetection,True)
+    #Utils.set_image_show_flag(FlagNames.LegacyAngleDetection,True)
+    #Utils.set_image_show_flag(FlagNames.LegacyShowParamResults,True)
+    #Utils.set_image_show_flag(FlagNames.LegacyShowAverageResult,True)
+    #Utils.set_image_show_flag(FlagNames.LegacyShowFinalImage,True)
+
     Utils.set_debug(config.is_debug_mode())
     asyncio.run(main())

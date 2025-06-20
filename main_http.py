@@ -339,8 +339,6 @@ async def handle_websocket(websocket: WebSocket):
                 return
 
 
-
-
             id = websocket.headers["sec-websocket-protocol"].split("-")[-1]
             Utils.log_info(f"Internal client connected: {id}")
             internal_clients[id] = WebsocketInternalClient(websocket, id)

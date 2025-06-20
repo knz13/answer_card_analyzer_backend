@@ -1099,7 +1099,7 @@ def remove_between_grid_circles(circles, grid_tolerance_factor=0.8):
     
     return aligned_circles
 
-def remove_white_content_circles(circles, crop_img, max_white_percentage=0.97, white_threshold=200):
+def remove_white_content_circles(circles, crop_img, max_white_percentage=0.99, white_threshold=200):
     """
     Remove circles that have too much white/light content inside them.
     This helps filter out false positive circles detected in areas that are mostly white.

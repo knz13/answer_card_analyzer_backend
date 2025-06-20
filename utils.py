@@ -1,6 +1,3 @@
-
-
-
 import json
 import os
 import random
@@ -35,9 +32,42 @@ class CircleIdentificationMethods:
     SIMPLE = "SIMPLE"
     SELF_IMPROVING_AI = "SELF_IMPROVING_AI"
 
+class FlagNames:
+    CornerDetection = "corner_detection"
+    EdgeDetection = "edge_detection"
+    Morphology = "morphology"
+    FinalCorners = "final_corners"
+    AngleDetection = "angle_detection"
+    LegacyAngleDetection = "legacy_angle_detection"
+    LegacyShowParamResults = "legacy_show_param_results"
+    LegacyShowAverageResult = "legacy_show_average_result"
+    LegacyShowFinalImage = "legacy_show_final_image"
+    LegacyShowNormalization = "legacy_show_normalization"
+
 class Utils:
 
     __debug = True
+
+    __image_show_flags = {
+        FlagNames.CornerDetection: False,
+        FlagNames.EdgeDetection: False,
+        FlagNames.Morphology: False,
+        FlagNames.FinalCorners: False,
+        FlagNames.AngleDetection: False,
+        FlagNames.LegacyAngleDetection: False,
+        FlagNames.LegacyShowParamResults: False,
+        FlagNames.LegacyShowAverageResult: False,
+        FlagNames.LegacyShowFinalImage: False,
+        FlagNames.LegacyShowNormalization: False,
+    }
+
+    @staticmethod
+    def show_image(image, text="image"):
+        cv2.imshow(text, image)
+        while True:
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        cv2.destroyAllWindows()
 
     @staticmethod
     def get_version():
@@ -134,3 +164,12 @@ class Utils:
 
         auto_result = cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
         return (auto_result, alpha, beta)
+
+    @staticmethod
+    def set_image_show_flag(flag_name, value):
+        if flag_name in Utils.__image_show_flags:
+            Utils.__image_show_flags[flag_name] = value
+
+    @staticmethod
+    def get_image_show_flag(flag_name):
+        return Utils.__image_show_flags.get(flag_name, False)
